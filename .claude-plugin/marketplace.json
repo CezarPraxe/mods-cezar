@@ -1,0 +1,13 @@
+{
+  "name": "mods-cezar",
+  "owner": {
+    "name": "Cezar Praxedes"
+  },
+  "plugins": [
+    {
+      "name": "painel-cezar",
+      "source": "./plugins/painel-cezar",
+      "description": "Faixa ctx, 5h, sem, cache e botões; painéis de arquivos e subagentes"
+    }
+  ]
+}

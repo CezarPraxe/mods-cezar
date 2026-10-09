@@ -1,0 +1,1 @@
+{ "name": "painel-cezar", "version": "0.10.1", "description": "Faixa com ctx, 5h, semana, ⏱ cache e botões; hora de Rondônia em cada mensagem", "types": "./types/index.d.ts" }

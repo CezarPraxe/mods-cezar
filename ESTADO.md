@@ -36,6 +36,7 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.jsx` + `hooks\clawd.
 ## Como mexer (regra dura)
 1. Editar **só** `~\.claude\mods-cezar\plugins\painel-cezar\` e subir `version` no `plugin.json`.
 2. `claude plugin validate .` → `claude plugin marketplace update mods-cezar` → `claude plugin update painel-cezar@mods-cezar`.
+   - Depois: `git commit` + `git push`. A pasta é o repositório **público** github.com/CezarPraxe/mods-cezar (desde 09/10). Nada de segredo, caminho pessoal ou dado de cliente no código.
 3. **Provar que carrega antes de pedir reinício:** `claude -p "ok" --model haiku --debug-file x.log` e procurar `hooks module painel-cezar@mods-cezar loaded` / `did not load`. Para testar a hora: perguntar ao `-p` que horas são.
 4. **Reiniciar só a sessão, não o app:** arquivar a sessão na barra lateral e desarquivar. Isso mata o programa dela, e ao clicar nela sobe um novo, com a conversa inteira, os mods relidos e os MCPs reconectados. Testado em 09/10 na CLAUDE STARTUP: o programa das 09:36 morreu e nasceu um às 09:46 com as 2344 mensagens. Chat novo também pega a versão nova.
    - Arquivar desliga o Controle Remoto da sessão; sessão aberta pelo celular eu não consigo arquivar pela ferramenta, só o Cezar pela barra lateral.

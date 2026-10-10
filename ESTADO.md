@@ -1,6 +1,6 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 10/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.12.0**) · público em github.com/CezarPraxe/mods-cezar
+Atualizado: 10/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.13.1**) · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
@@ -42,7 +42,7 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
 3. **Provar que carrega antes de pedir reinício:** `claude -p "ok" --model haiku --debug-file x.log` e procurar `hooks module painel-cezar@mods-cezar loaded` / `did not load`. Para testar a hora: perguntar ao `-p` que horas são.
 4. **Reiniciar só a sessão, não o app:** arquivar a sessão na barra lateral e desarquivar. Isso mata o programa dela, e ao clicar nela sobe um novo, com a conversa inteira, os mods relidos e os MCPs reconectados. Testado em 09/10 na CLAUDE STARTUP: o programa das 09:36 morreu e nasceu um às 09:46 com as 2344 mensagens. Chat novo também pega a versão nova.
    - Arquivar desliga o Controle Remoto da sessão; sessão aberta pelo celular eu não consigo arquivar pela ferramenta, só o Cezar pela barra lateral.
-   - A doc diz que `/reload-plugins` digitado no chat troca a versão; ainda não conferido (a falha antiga pode ter sido a cópia em dev-mods).
+   - **`/reload-plugins` NÃO troca a versão de plugin instalado** (testado 10/10, com e sem --force: a faixa seguiu na 0.10.1 com a 0.13.0 instalada), apesar da doc dizer que sim. Só arquivar/desarquivar ou chat novo.
 - ⚠️ **Nunca testar por cópia em `dev-mods`** com o plugin já instalado: as duas carregam e a instalada é a que aparece.
 - Prévia de desenho: exportar os SVGs com node e rasterizar com PIL (o navegador interno mostrou página vazia para HTML local).
 
@@ -58,9 +58,7 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
   - se SDR e Estagiário passaram a acertar a saudação.
 - **Em aberto:**
   - % 5h no painel de agentes, ainda não visto funcionando;
-  - 0.12.0 no app: Clawd andando com subagente rodando, 🗜️, painel de agentes vindo do próprio plugin.
+  - 0.13.x no app (fantasias: advogado-* de terno com maleta, executor-*/obra-longa-* de capacete; tsc zerado em 0.13.1): Clawd andando com subagente rodando, 🗜️, painel de agentes vindo do próprio plugin.
   - toast de cache frio, ainda não disparado.
 - **Depois:**
-  - `tsc` acusa 174 erros de tipo (o código antigo em JS virou TSX); o engine carrega. Tipar com calma.
-  - subagentes `executor-*`/`advogado-*` aparecem sem fantasia (só os `savvy-*` tinham); dar fantasia por modelo se o Cezar quiser.
 - `usage-meter@claude-mods` segue desligado (não apagado).

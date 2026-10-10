@@ -9,9 +9,11 @@ Faixa acima do prompt:
 - **ctx**: quanto da janela de contexto já foi usado; aviso ao passar de 70%.
 - **Barras da janela de 5 h e da semana**: a barra é o uso, a bolinha é o tempo da janela que já passou. Barra antes da bolinha = folga.
 - **⏱ cache**: quanto falta para o cache do prompt esfriar (1 h; 5 min quando o limite estoura e entra uso extra). Toast quando uma chamada grande regrava o cache, com o motivo provável.
-- **Clawd** (desktop): anda enquanto o Claude trabalha, pisca quando é a sua vez, entra em pânico com um "!" amarelo quando pede permissão ou faz pergunta. Clique abre o painel de agentes do [savvy-progress](https://github.com/JohnnyVizz).
+- **Clawd** (desktop): anda enquanto o Claude ou qualquer subagente trabalha, pisca quando é a sua vez, entra em pânico com um "!" amarelo quando pede permissão ou faz pergunta. Clique abre o painel de agentes.
+- **Painel de agentes**: um cartão por subagente, com Clawd animado, modelo, contexto, custo (em % da janela de 5 h) e tempo. Adaptado do [savvy-progress](https://github.com/johnnyvizz/claude-kit) (MIT, © 2026 johnnyvizz; licença em `LICENSE-savvy-progress`).
+- **🗜️**: compacta a conversa.
 - **💾**: manda atualizar o `ESTADO.md` do projeto e compacta a conversa quando o turno acaba.
-- **Hora local em toda mensagem**: anexa ao contexto, escondido, dia da semana, data e hora (UTC−4, Rondônia), para o modelo não dar "bom dia" de tarde. Troque o fuso em `horaRondonia()` no `hooks/register.jsx`.
+- **Hora local em toda mensagem**: anexa ao contexto, escondido, dia da semana, data e hora (UTC−4, Rondônia), para o modelo não dar "bom dia" de tarde. Troque o fuso em `horaRondonia()` no `hooks/register.tsx`.
 
 ## Instalar
 
@@ -24,7 +26,7 @@ Depois reinicie a sessão: no app desktop, arquivar e desarquivar a sessão já 
 
 ## Mexer
 
-Edite `plugins/painel-cezar/hooks/register.jsx`, suba `version` no `plugin.json`, e:
+Edite `plugins/painel-cezar/hooks/register.tsx`, suba `version` no `plugin.json`, e:
 
 ```bash
 claude plugin validate plugins/painel-cezar

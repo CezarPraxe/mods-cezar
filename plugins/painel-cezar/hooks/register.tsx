@@ -167,15 +167,21 @@ const TIER_COLOR: Record<string, string> = {
 
 const colorOf = (tier: string): string => TIER_COLOR[tier] ?? '#888780'
 
-// USD per million tokens: input, output, cache read, cache write (5-minute TTL).
-// The engine reports tokens, not money, so the panel's cost is an estimate.
+// USD por milhão de tokens: entrada, saída, leitura de cache, gravação de cache (5 min).
+// Conferido em 10/10/2026 em https://platform.claude.com/docs/en/about-claude/pricing
+// Ordem importa: o mais específico vem antes. O Haiku 5.5 tem outra tabela acima de 100k (HAIKU55_ACIMA_100K).
 const PRICES: [RegExp, [number, number, number, number]][] = [
-  [/fable|mythos/, [10, 50, 0.25, 12.5]],
+  [/(fable|mythos)-5-1/, [10, 50, 0.25, 12.5]],
+  [/fable|mythos/, [10, 50, 1, 12.5]],
   [/opus-5-5/, [4, 20, 0.2, 5]],
   [/opus/, [5, 25, 0.5, 6.25]],
-  [/sonnet/, [2, 10, 0.2, 2.5]],
+  [/sonnet-5-5/, [2, 10, 0.1, 2.5]],
+  [/sonnet-5/, [2, 10, 0.2, 2.5]],
+  [/sonnet/, [3, 15, 0.3, 3.75]],
+  [/haiku-5/, [0.1, 0.5, 0.01, 0.125]],
   [/haiku/, [1, 5, 0.1, 1.25]],
 ]
+const HAIKU55_ACIMA_100K: [number, number, number, number] = [0.5, 2.5, 0.05, 0.625]
 
 type Usage = {
   input_tokens: number
@@ -188,7 +194,8 @@ const priceOf = (model: string): [number, number, number, number] =>
   PRICES.find(([re]) => re.test(model.toLowerCase()))?.[1] ?? [4, 20, 0.2, 5]
 
 const costOf = (model: string, u: Usage): number => {
-  const [i, o, r, w] = priceOf(model)
+  const prompt = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0)
+  const [i, o, r, w] = /haiku-5/i.test(model) && prompt > 100_000 ? HAIKU55_ACIMA_100K : priceOf(model)
   return (
     ((u.input_tokens || 0) * i +
       (u.output_tokens || 0) * o +
@@ -198,7 +205,8 @@ const costOf = (model: string, u: Usage): number => {
   )
 }
 
-const windowOf = (model: string): number => (/haiku/i.test(model) ? 200_000 : 1_000_000)
+// Janela: 1M em todos os modelos atuais; 200k só no Haiku 4.x (conferido em 10/10/2026, models overview).
+const windowOf = (model: string): number => (/haiku-4/i.test(model) ? 200_000 : 1_000_000)
 
 // `savvy-careful`, or `savvy-flow:savvy-careful` when the agents ship in a plugin.
 const tierOf = (type: string): string => {
@@ -1014,7 +1022,8 @@ export function register(on, options) {
       m.reset = resetText(m, now)
     }
     const cachePill = cacheMeter(elements, e.surface, now)
-    const clawdAgora = clawdSvgAgora()
+    const subRodando = (await read($, agents)).some((a) => a.status === 'running')
+    const clawdAgora = clawdSvgAgora(subRodando)
     const gauge = e.surface !== 'terminal' ? 'svg' : barsFit(meters, e.props.bodyColumns ?? 0) ? 'text' : 'none'
 
     const line = elements.Box({
@@ -1034,13 +1043,21 @@ export function register(on, options) {
               children: [
                 elements.Svg({
                   source: clawdAgora.source,
-                  alt: clawdEstado === 'panico' ? 'precisa de você' : clawdEstado === 'trabalhando' ? 'trabalhando' : 'sua vez',
+                  alt: clawdAgora.alt,
                   width: CLAWD_LARGURA,
                   height: clawdAgora.altura,
                 }),
                 elements.Box({ key: 'clawd-clique', position: 'absolute', top: 0, left: 0, children: [elements.Client({ key: 'clawd', module: './clawd.jsx', width: 3, height: 1 })] }),
               ],
             }),
+        elements.Button({
+          key: 'compactar',
+          label: '🗜️',
+          onPress: () => {
+            $.ui.toast('Compactando…')
+            compactar($)
+          },
+        }),
         elements.Button({
           key: 'salvar',
           label: '💾',
@@ -1266,7 +1283,7 @@ function mudarClawd($, estado) {
 function passarQuadroClawd($) {
   clawdQuadro++
   const piscando = clawdQuadro % CLAWD_PISCA_A_CADA < 2
-  if (clawdEstado !== 'vez' || piscando) $.ui.invalidate('ui.render')
+  if (clawdEstado === 'panico' || (clawdEstado === 'vez' && piscando)) $.ui.invalidate('ui.render')
 }
 function clawdPixels(art, cor, dy, dx) {
   let r = ''
@@ -1285,31 +1302,40 @@ function clawdOlhos(dy, dx, estilo, cor) {
 }
 const CLAWD_CORPO = ['..########..', '..########..', '############', '############', '..########..', '..########..']
 const CLAWD_PERNAS_A = ['', '', '', '', '', '', '..#.#..#.#..', '..#.#..#.#..']
-const CLAWD_PERNAS_B = ['', '', '', '', '', '', '...#.#..#.#.', '...#.#..#.#.']
 const CLAWD_PANICO_CORPO = ['...........#', '..########.#', '..##########', '############', '############', '..########..', '..########..', '..#.#..#.#..', '..#.#..#.#..']
 const clawdCache = {}
-function clawdSvgAgora() {
+// Trabalhando (eu ou qualquer subagente): o mesmo Clawd andando do painel de agentes,
+// animado por CSS dentro do SVG, sem redesenhar a faixa
+const CLAWD_TRABALHANDO_ALTURA = 18
+function clawdSvgAgora(subRodando) {
   const q = clawdQuadro
-  let chave, altura, miolo
+  let chave, altura, miolo, alt
   if (clawdEstado === 'panico') {
     // Treme 1 px para os lados; o "!" pisca. Corpo encostado no chão, mão em y 10, "!" acima dela.
     const dx = [0, 1, 2, 1][q % 4]
     const aceso = q % 2 === 0
     chave = 'p' + dx + aceso
     altura = CLAWD_PANICO_ALTURA
+    alt = 'precisa de você'
     const dy = altura - CLAWD_PANICO_CORPO.length * 2
     miolo = clawdPixels(CLAWD_PANICO_CORPO, '#E24B4A', dy, dx) + clawdOlhos(dy + 2, dx, 'panico') +
       `<g fill="#FFD60A" opacity="${aceso ? 1 : 0.3}"><rect x="${22 + dx}" y="0" width="2" height="4"/><rect x="${22 + dx}" y="6" width="2" height="2"/></g>`
+  } else if (clawdEstado === 'trabalhando' || subRodando) {
+    chave = 't'
+    altura = CLAWD_TRABALHANDO_ALTURA
+    alt = 'trabalhando'
+    clawdCache[chave] ??= `<svg xmlns="http://www.w3.org/2000/svg" width="${CLAWD_LARGURA}" height="${altura}" viewBox="2 9 26 ${altura}">${CRAB_CSS}${crab(0, 0, 'other', false, true, 1)}</svg>`
+    return { source: clawdCache[chave], altura, alt }
   } else {
-    const andando = clawdEstado === 'trabalhando' && q % 2 === 1
-    const piscando = clawdEstado === 'vez' && q % CLAWD_PISCA_A_CADA === 0
-    chave = 'n' + andando + piscando
+    const piscando = q % CLAWD_PISCA_A_CADA === 0
+    chave = 'n' + piscando
     altura = 16
-    miolo = clawdPixels(CLAWD_CORPO, '#DA7758', 0, 1) + clawdPixels(andando ? CLAWD_PERNAS_B : CLAWD_PERNAS_A, '#DA7758', 0, 1) +
+    alt = 'sua vez'
+    miolo = clawdPixels(CLAWD_CORPO, '#DA7758', 0, 1) + clawdPixels(CLAWD_PERNAS_A, '#DA7758', 0, 1) +
       clawdOlhos(0, 1, piscando ? 'fechado' : 'aberto')
   }
   clawdCache[chave] ??= `<svg xmlns="http://www.w3.org/2000/svg" width="${CLAWD_LARGURA}" height="${altura}" viewBox="0 0 ${CLAWD_LARGURA} ${altura}" shape-rendering="crispEdges">${miolo}</svg>`
-  return { source: clawdCache[chave], altura }
+  return { source: clawdCache[chave], altura, alt }
 }
 
 function svgBar(used, elapsed, status) {

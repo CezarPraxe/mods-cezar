@@ -7,7 +7,7 @@
     {
       "name": "painel-cezar",
       "source": "./plugins/painel-cezar",
-      "description": "Faixa ctx, 5h, sem, cache e botões; painéis de arquivos e subagentes"
+      "description": "Faixa com ctx, 5h, semana, cache, Clawd e botões; painel de agentes; hora local em cada mensagem"
     }
   ]
 }

@@ -1,14 +1,14 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 07/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.10.1**)
+Atualizado: 10/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.12.0**) · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
-Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.jsx` + `hooks\clawd.jsx` + `types\index.d.ts`.
-- **Faixa acima do prompt** (desktop/terminal; o celular não tem): `ctx` · barra do 5h · barra da semana · `⏱ 42m` (cache) · **Clawd** · **💾**.
+Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
+- **Faixa acima do prompt** (desktop/terminal; o celular não tem): `ctx` · barra do 5h · barra da semana · `⏱ 42m` (cache) · **Clawd** · **🗜️** (só compacta) · **💾**.
   - 5h e semana sem rótulo: a ordem e o horário identificam (5h em hora do dia, semana em dias).
   - A bolinha nas barras marca o tempo da janela que já passou; a barra é o uso. Barra antes da bolinha = folga.
-- **Clawd** (só no desktop; no terminal é o botão `sub`): clique abre o painel de agentes do **savvy-progress** (`$.ui.open({ id: 'savvy-agents' })`). Três estados:
-  - **trabalhando** (`turn.start`): perninhas andando;
+- **Clawd** (só no desktop; no terminal é o botão `sub`): clique abre o painel de agentes (`$.ui.open({ id: 'agentes-cezar' })`). Três estados:
+  - **trabalhando** (`turn.start` da conversa principal **ou qualquer subagente rodando**, lido de `ag_agents`): o mesmo Clawd andando do painel de agentes, animado por CSS dentro do SVG, sem redesenhar a faixa;
   - **vez** (`turn.complete`): parado, pisca de vez em quando;
   - **pânico** (`tool.check` = ask, ou `tool.call` de AskUserQuestion/ExitPlanMode, até a ferramenta terminar): vermelho, olho arregalado, treme e ergue um "!" amarelo. O SVG cresce para 28 px de altura nessa hora.
 - **💾**: manda o prompt do ESTADO.md (aviso na hora, segundo clique ignorado) e compacta sozinho quando o turno acaba. Depois relê o ctx 5 vezes, de 2 em 2 s.
@@ -31,7 +31,9 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.jsx` + `hooks\clawd.
   - botão/painel `onde está` (Arquivos);
   - instalar o mod prompt-cache-control (davila7). Dele só aproveitamos as ideias do ⏱; a faixa dele é longa, em inglês, e duplicaria o nosso medidor.
 - Varredura de mods no X e no catálogo davila7 (06/10): o Cezar só quis o "Clawd em pânico" (ideia do @nvr0x5). image-view e secret-redactor foram sugeridos e não pedidos.
-- O painel próprio de agentes (`PANE_AG`) continua no código, sem botão: o savvy substituiu.
+- **Painel de agentes = código do savvy-progress (MIT, johnnyvizz) trazido para dentro** em 10/10 (0.11.0), com a tradução e o custo em "% 5h". Tirados: faixa de progresso do savvy-flow, ferramentas `progress`/`step`, tarefas planejadas. O `savvy-progress@claude-kit` ficou **desabilitado** (não desinstalado). Crédito em `LICENSE-savvy-progress` e no topo do register.tsx.
+- **O engine aceita um só módulo de hooks por plugin** e recusa dois hooks sem filtro no mesmo evento: por isso tudo está num arquivo, e session.start/turn.step/turn.complete/session.measure foram fundidos.
+- Preço e janela de modelo (`PRICES`/`windowOf` no register.tsx) conferidos na página oficial em 10/10: janela de 1M em tudo menos Haiku 4.x; Haiku 5.5 tem preço próprio e outro acima de 100k de prompt. O engine só informa a janela da conversa principal, então a tabela é necessária: rever a cada modelo novo.
 
 ## Como mexer (regra dura)
 1. Editar **só** `~\.claude\mods-cezar\plugins\painel-cezar\` e subir `version` no `plugin.json`.
@@ -44,13 +46,6 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.jsx` + `hooks\clawd.
 - ⚠️ **Nunca testar por cópia em `dev-mods`** com o plugin já instalado: as duas carregam e a instalada é a que aparece.
 - Prévia de desenho: exportar os SVGs com node e rasterizar com PIL (o navegador interno mostrou página vazia para HTML local).
 
-## savvy-progress (claude-kit, JohnnyVizz) — painel de agentes adotado
-- Instalado como `savvy-progress@claude-kit`. Edições feitas **na cópia do cache** (`~\.claude\plugins\cache\claude-kit\savvy-progress\1.2.0\hooks\register.tsx`):
-  - tradução para português (original em `claudecode\_archive\tmp\savvy-progress-register-original.tsx`);
-  - custo em **"% 5h"** no lugar de $. O câmbio é o Δ% do 5h ÷ Δ$ da sessão, com base no `$.store` (`cambio:<sessão>:<janela>`). Até o 5h subir 1 ponto, mostra $. Fica inflado se outros chats gastarem junto.
-- ⚠️ Atualizar o plugin **apaga** essas edições.
-- Ver a conversa de um subagente: só pelo app (a linha `>` no chat, ou o painel de tarefas).
-
 ## Pendente / próximo passo
 - **Conferido no app:**
   - 💾 (0.7.2);
@@ -62,9 +57,10 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.jsx` + `hooks\clawd.
   - se o clique no Clawd ainda abre os Agentes;
   - se SDR e Estagiário passaram a acertar a saudação.
 - **Em aberto:**
-  - % 5h do savvy, ainda não visto funcionando;
+  - % 5h no painel de agentes, ainda não visto funcionando;
+  - 0.12.0 no app: Clawd andando com subagente rodando, 🗜️, painel de agentes vindo do próprio plugin.
   - toast de cache frio, ainda não disparado.
 - **Depois:**
-  - fork do savvy-progress dentro de `mods-cezar`, para as edições não sumirem numa atualização;
-  - opcional: apagar o `PANE_AG` sem uso.
+  - `tsc` acusa 174 erros de tipo (o código antigo em JS virou TSX); o engine carrega. Tipar com calma.
+  - subagentes `executor-*`/`advogado-*` aparecem sem fantasia (só os `savvy-*` tinham); dar fantasia por modelo se o Cezar quiser.
 - `usage-meter@claude-mods` segue desligado (não apagado).

@@ -162,6 +162,8 @@ const TIER_COLOR: Record<string, string> = {
   careful: '#BA7517',
   medium: '#378ADD',
   light: '#1D9E75',
+  advogado: '#3B5B92',
+  executor: '#BA7517',
   other: '#888780',
 }
 
@@ -212,6 +214,9 @@ const windowOf = (model: string): number => (/haiku-4/i.test(model) ? 200_000 : 
 const tierOf = (type: string): string => {
   const bare = type.replace(/^[^:]*:/, '')
   const t = bare.replace(/^savvy-/, '').toLowerCase()
+  // Agentes da casa: advogado-* de terno, executor-*/obra-longa-* de capacete de obra
+  if (/^advogado-/i.test(bare)) return 'advogado'
+  if (/^(executor|obra-longa)-/i.test(bare)) return 'executor'
   return t in TIER_COLOR && bare.startsWith('savvy-') ? t : 'other'
 }
 
@@ -339,6 +344,9 @@ const CRAB_CSS = `<style>
 @keyframes wave{50%{transform:skewY(-12deg) scaleX(.85)}}
 .c-explore.run .it{transform-origin:50% 100%;animation:fence .5s ease-in-out infinite}
 @keyframes fence{50%{transform:rotate(25deg)}}
+.c-executor.run .it{transform-origin:100% 100%;animation:twist .5s ease-in-out infinite}
+.c-advogado.run .it{transform-origin:50% 0;animation:swing 1s ease-in-out infinite}
+@keyframes swing{25%{transform:rotate(8deg)}75%{transform:rotate(-8deg)}}
 @media (prefers-reduced-motion: reduce){.run,.run g{animation:none!important}}
 </style>`
 
@@ -385,6 +393,20 @@ const COSTUMES: Record<string, (f: Fill, t: string) => void> = {
     stamp(f, 5, 3, ['.kk..............kk.', '.kkk....kkkk....kkk.', '..kkkkkkkwwkkkkkkk..', '..kkkkkkkkkkkkkkkk..', '.gggggggggggggggggg.'], { k: '#55514C', w: '#F8F6F1', g: '#F5C542' })
     f(7, 11, 11, 1, INK); f(18, 11, 4, 3, INK)
     f(27, 6, 1, 9, '#C9CCD2', 'it'); f(26, 15, 3, 1, '#7A4A26', 'it')
+  },
+  // Advogado: terno azul-marinho, camisa branca, gravata vermelha; a maleta balança.
+  advogado: f => {
+    crabBody(f)
+    stamp(f, 7, 16, ['nnnnnwwrrwwnnnnn', 'nnnnnnwrrwnnnnnn', 'nnnnnnnrrnnnnnnn', 'nnnnnnnrrnnnnnnn', 'nnnnnnnnnnnnnnnn', 'nnnnnnnnnnnnnnnn'], { n: '#22304F', w: '#F8F6F1', r: '#C0392B' })
+    f(3, 14, 4, 2, '#22304F'); f(23, 14, 4, 2, '#22304F')
+    f(25, 17, 3, 1, INK, 'it'); f(23, 18, 7, 4, '#6B3E1F', 'it'); f(26, 19, 1, 1, '#F5C542', 'it')
+  },
+  // Executor: peão de obra de capacete; a chave gira o parafuso.
+  executor: (f, t) => {
+    crabBody(f)
+    stamp(f, 6, 4, ['.....yyyyyyyy.....', '...yyyyyhhyyyyy...', '..yyyyyyhhyyyyyy..', '..yyyyyyhhyyyyyy..', '.yyyyyyyhhyyyyyyy.', 'dddddddddddddddddd'], { y: '#F5C542', h: '#FBE08A', d: '#C99A1E' })
+    f(13, 5, 4, 2, t)
+    stamp(f, 0, 10, ['.s.s', 'sss.', '.s..', '.s..'], { s: '#8E929A' }, 'it')
   },
   other: f => crabBody(f),
 }
@@ -467,7 +489,7 @@ const agentSvg = (W: number, a: AgentRun, at: number): string => {
     66,
     `${crab(0, 14, costumeOf(a.type), false, a.status === 'running')}
 <text class="t" x="42" y="18" font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(a.description || a.type, 13, textW))}</text>
-<text x="42" y="34" font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(tier === 'other' ? a.type : tier)}</tspan><tspan class="s">  ${xml(meta.join('  ·  '))}</tspan></text>
+<text x="42" y="34" font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(tier === 'other' || tier === 'advogado' || tier === 'executor' ? a.type : tier)}</tspan><tspan class="s">  ${xml(meta.join('  ·  '))}</tspan></text>
 ${steps && stepsW > 30 ? `<text class="t" x="42" y="49" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(fitText(steps, 11, stepsW))}</text>` : ''}
 <text class="s" x="${42 + barW}" y="49" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${stats}</text>
 <rect class="k" x="42" y="55" width="${barW}" height="4" rx="2"/><rect${progress === null ? ' class="m"' : ''} x="42" y="55" width="${fillW}" height="4" rx="2"${progress === null ? '' : ` fill="${color}"`}/>

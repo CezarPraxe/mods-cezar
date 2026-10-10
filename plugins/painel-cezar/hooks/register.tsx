@@ -2,7 +2,7 @@
 // Texto da licença: LICENSE-savvy-progress, na raiz do repositório mods-cezar.
 // Parte do módulo register.tsx: o plugin tem um só módulo de hooks.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { ElementTable, EngineInterface, PluginOptions, Register, SessionContextUsage, SessionRateLimit, Timer } from 'claude-code'
 import type { AgentRun, Panel } from '../types'
 
 // Estado do painel de agentes. Prefixo ag_ para não colidir com os valores da faixa, mais abaixo no arquivo.
@@ -807,19 +807,20 @@ const avisou70 = atom({ plugin: 'painel-cezar', key: 'avisou70' }, false)
 // Shows context, 5-hour limit and weekly limit usage in the band above the prompt.
 
 // The latest figures this session has, from $.session.usage() or session.measure
-let context = null
-let rateLimits = []
+let context: SessionContextUsage | null = null
+let rateLimits: SessionRateLimit[] = []
 // When rateLimits was last measured, in $.clock.now() milliseconds
 let measuredAt = 0
 // The timer that refreshes the band, kept so a later session.start can stop it
-let ticker = null
+let ticker: Timer | null = null
 // This session's own key in the store
-let ownKey = null
+let ownKey: string | null = null
 // Quando começou a última chamada ao modelo da conversa principal: o cache conta a partir dela
 // (a documentação da Anthropic conta do início do pedido, não do fim da resposta)
 let ultimaResposta = 0
 // A chamada anterior ({ comecou, modelo, lido, gravado, novo }), para ver se o cache esfriou
-let chamadaAnterior = null
+type Chamada = { comecou: number; modelo: string; lido: number; gravado: number; novo: number }
+let chamadaAnterior: Chamada | null = null
 // Abaixo disso regravar o cache sai barato e não vale aviso
 const AVISO_MIN_TOKENS = 20_000
 // Ligado pelo botão: compacta assim que a resposta do ESTADO.md terminar
@@ -853,7 +854,11 @@ const FINAL_REASONS = ['prompt_input_exit', 'other']
 const TICK_MS = 60_000
 
 const HOUR_MS = 3_600_000
-const WINDOWS = {
+// Elementos de desenho: a tabela do engine não declara key em Text, que as caixas e o resto aceitam
+type Els = Omit<ElementTable<'desktop'>, 'Text'> & {
+  Text: (props: Parameters<ElementTable<'desktop'>['Text']>[0] & { key?: string }) => ReturnType<ElementTable<'desktop'>['Text']>
+}
+const WINDOWS: Record<string, { label: string; ms?: number; showsClock?: boolean; semRotulo?: boolean }> = {
   // showsClock adds the reset time of day, in JST
   // semRotulo: a barra e o horário já dizem qual é (5h vem antes, em horas; a semana, em dias)
   five_hour: { label: '5h', ms: 5 * HOUR_MS, showsClock: true, semRotulo: true },
@@ -893,15 +898,15 @@ const SVG_COLORS = {
   error: ['#d9534f', '#f08a7e'],
   track: 'rgba(140,140,150,0.18)',
   marker: 'rgba(160,175,255,0.9)',
-}
+} as const
 // The terminal draws the time marker in this color
 const MARKER_COLOR = 'cyan'
 
-export function register(on, options) {
+export function register(on: Parameters<Register>[0], options: PluginOptions) {
   registerAgentes(on)
   // ---- Clawd e relógio ----
-  let relogio
-  let quadros
+  let relogio: Timer | undefined
+  let quadros: Timer | undefined
 
   on('session.start', async ($, e, next) => {
     await inicio($)
@@ -940,7 +945,7 @@ export function register(on, options) {
   })
 
   on('turn.start', async ($, e, next) => {
-    if (!e.agentId) mudarClawd($, 'trabalhando')
+    if (!(e as { agentId?: string }).agentId) mudarClawd($, 'trabalhando')
     return next(e)
   })
 
@@ -1033,9 +1038,9 @@ export function register(on, options) {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const elements = $.ui.resolve(e)
+    const elements = $.ui.resolve(e) as Els
     const now = await $.clock.now()
-    const meters = [{ label: 'ctx', used: context?.percent, elapsed: null, resetsAt: null }]
+    const meters: Meter[] = [{ label: 'ctx', used: context?.percent, elapsed: null, resetsAt: null }]
     for (const limit of rateLimits) {
       meters.push(readLimit(limit, now))
     }
@@ -1100,17 +1105,17 @@ export function register(on, options) {
   })
 }
 
-async function remember($, limits) {
+async function remember($: EngineInterface, limits: SessionRateLimit[]) {
   // Take the time first, so a refresh that runs meanwhile can't pair old limits with it
   const now = await $.clock.now()
   rateLimits = limits
   measuredAt = now
-  await $.store.set(ownKey, { at: now, limits })
+  await $.store.set(ownKey as string, { at: now, limits })
 }
 
 // Takes the newest reading any session saved, unless this session's own is newer still, and
 // deletes the keys no session needs: ended sessions' older readings, and any reading too old
-async function refresh($) {
+async function refresh($: EngineInterface) {
   const { entries, newest } = await scan($)
   if (newest && newest.reading.at >= measuredAt) {
     rateLimits = newest.reading.limits
@@ -1126,14 +1131,14 @@ async function refresh($) {
 // Stops using this session's key: keeps its reading marked ended if it is the newest, so the
 // others may delete it once a newer one exists, and removes it otherwise, since only the newest
 // reading is ever shown
-async function releaseKey($) {
+async function releaseKey($: EngineInterface) {
   const { entries, newest } = await scan($)
-  if (newest?.key === ownKey) await $.store.set(ownKey, { ...newest.reading, ended: true })
-  else await $.store.delete(ownKey)
+  if (newest?.key === ownKey) await $.store.set(ownKey as string, { ...newest.reading, ended: true })
+  else await $.store.delete(ownKey as string)
   await prune($, entries, newest?.key)
 }
 
-async function prune($, entries, newestKey) {
+async function prune($: EngineInterface, entries: Entry[], newestKey: string | undefined) {
   const cutoff = (await $.clock.now()) - STALE_MS
   for (const { key, reading } of entries) {
     if (key === ownKey || key === newestKey) continue
@@ -1144,7 +1149,7 @@ async function prune($, entries, newestKey) {
 // usage() at startup may answer this session's last reading, which can be older than the shared
 // one in ways a merge can't tell apart (a window that went away, a spend limit that went down),
 // so a shared reading always wins and the snapshot is saved only when there is none
-async function publishSnapshot($, snapshot) {
+async function publishSnapshot($: EngineInterface, snapshot: SessionRateLimit[]) {
   const { newest } = await scan($)
   if (newest) {
     rateLimits = newest.reading.limits
@@ -1156,9 +1161,9 @@ async function publishSnapshot($, snapshot) {
 
 // Every session's key and what it holds, and the newest reading among them. At an equal time the
 // later key wins, so every session picks the same one.
-async function scan($) {
-  const entries = []
-  let newest = null
+async function scan($: EngineInterface) {
+  const entries: Entry[] = []
+  let newest: { key: string; reading: Reading } | null = null
   const cutoff = (await $.clock.now()) - STALE_MS
   for (const key of await $.store.keys()) {
     if (!key.startsWith(KEY_PREFIX)) continue
@@ -1172,11 +1177,15 @@ async function scan($) {
   return { entries, newest }
 }
 
-function isReading(value) {
-  return value != null && typeof value.at === 'number' && Array.isArray(value.limits)
+type Reading = { at: number; limits: SessionRateLimit[]; ended?: boolean }
+type Entry = { key: string; reading: unknown }
+function isReading(value: unknown): value is Reading {
+  const r = value as Partial<Reading> | null
+  return r != null && typeof r.at === 'number' && Array.isArray(r.limits)
 }
 
-function readLimit(limit, now) {
+type Meter = { label: string; semRotulo?: boolean; used?: number; elapsed: number | null; resetsAt?: number | null; showsClock?: boolean; value?: string; reset?: string }
+function readLimit(limit: SessionRateLimit, now: number): Meter {
   const window = WINDOWS[limit.kind]
   const label = window?.label ?? limit.kind
   const resetsAtMs = limit.resetsAt == null ? null : Date.parse(limit.resetsAt)
@@ -1189,7 +1198,8 @@ function readLimit(limit, now) {
 }
 
 // Green, yellow or red by how far usage runs ahead of the time gone in its window
-function statusOf(used, elapsed) {
+type Status = 'success' | 'warning' | 'error'
+function statusOf(used: number, elapsed: number | null): Status {
   if (used >= RED_MIN_USED) return 'error'
   if (elapsed == null) return used >= 80 ? 'error' : used >= 50 ? 'warning' : 'success'
   const margin = elapsed - used
@@ -1198,11 +1208,11 @@ function statusOf(used, elapsed) {
   return 'success'
 }
 
-function valueText({ used }) {
+function valueText({ used }: Meter): string {
   return typeof used === 'number' ? Math.round(used) + '%' : '—'
 }
 
-function resetText({ resetsAt, showsClock }, now) {
+function resetText({ resetsAt, showsClock }: Meter, now: number): string {
   if (resetsAt == null) return ''
   const falta = resetsAt - now
   if (showsClock && falta < 20 * HOUR_MS) return jstClock(resetsAt)
@@ -1210,15 +1220,15 @@ function resetText({ resetsAt, showsClock }, now) {
 }
 
 // Whether every meter fits on one line with its text bar; every character drawn is one cell wide
-function barsFit(meters, columns) {
-  const width = meters.reduce((sum, m) => sum + (m.semRotulo ? 0 : [...m.label].length + 1) + BAR_CELLS + 1 + [...m.value].length + (m.reset ? 1 + [...m.reset].length : 0), 0)
+function barsFit(meters: Meter[], columns: number): boolean {
+  const width = meters.reduce((sum, m) => sum + (m.semRotulo ? 0 : [...m.label].length + 1) + BAR_CELLS + 1 + [...m.value!].length + (m.reset ? 1 + [...m.reset].length : 0), 0)
   return width + METER_GAP * (meters.length - 1) <= columns - BAND_RESERVED_COLUMNS
 }
 
-function meter({ Box, Text, Svg }, gauge, { label, semRotulo, used, elapsed, value, reset }) {
+function meter({ Box, Text, Svg }: Els, gauge: string, { label, semRotulo, used, elapsed, value, reset }: Meter) {
   const known = typeof used === 'number'
   const status = known ? statusOf(used, elapsed) : null
-  const style = known ? { color: status, bold: true } : { dimColor: true }
+  const style = known ? { color: status as Status, bold: true } : { dimColor: true }
 
   if (gauge === 'svg') {
     // Desktop: uma pílula por medidor; o contêiner quebra a linha quando falta espaço
@@ -1230,7 +1240,7 @@ function meter({ Box, Text, Svg }, gauge, { label, semRotulo, used, elapsed, val
         width: SVG_BAR.width,
         height: SVG_BAR.height,
       }),
-      Text({ key: 'v', ...style, wrap: 'truncate', children: [value] }),
+      Text({ key: 'v', ...style, wrap: 'truncate', children: [value as string] }),
     ]
     if (reset) partes.push(Text({ key: 'r', dimColor: true, wrap: 'truncate', children: [reset] }))
     return Box({
@@ -1247,13 +1257,13 @@ function meter({ Box, Text, Svg }, gauge, { label, semRotulo, used, elapsed, val
 
   const children = semRotulo ? [] : [Text({ dimColor: true, children: [label] })]
   if (gauge === 'text') children.push(...textBar(Text, known ? used : 0, elapsed, status))
-  children.push(Text({ ...style, children: [value] }))
+  children.push(Text({ ...style, children: [value as string] }))
   if (reset) children.push(Text({ dimColor: true, children: [reset] }))
   return Box({ key: 'meter-' + label, flexDirection: 'row', columnGap: 1, alignItems: 'center', children })
 }
 
 // The bar as runs of cells: used cells in the status color, the rest dim, and the time marker
-function textBar(Text, used, elapsed, status) {
+function textBar(Text: Els['Text'], used: number, elapsed: number | null, status: Status | null) {
   const filled = Math.round((clamp(used) / 100) * BAR_CELLS)
   const marker = elapsed == null ? -1 : Math.min(BAR_CELLS - 1, Math.floor((elapsed / 100) * BAR_CELLS))
   const markerStyle = { color: MARKER_COLOR, bold: true }
@@ -1265,7 +1275,7 @@ function textBar(Text, used, elapsed, status) {
     else if (i < filled) cells.push({ char: '█', style: usedStyle })
     else cells.push({ char: '░', style: restStyle })
   }
-  const runs = []
+  const runs: { text: string; style: { color?: string; bold?: boolean; dimColor?: boolean } }[] = []
   for (const cell of cells) {
     const last = runs.at(-1)
     if (last && last.style === cell.style) last.text += cell.char
@@ -1278,10 +1288,10 @@ function textBar(Text, used, elapsed, status) {
 
 // Rondônia é UTC−4 o ano todo (sem horário de verão)
 const DIAS_SEMANA = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado']
-function horaRondonia(ms) {
+function horaRondonia(ms: number): string {
   const d = new Date(ms - 4 * HOUR_MS)
   const h = d.getUTCHours()
-  const dois = (n) => String(n).padStart(2, '0')
+  const dois = (n: number) => String(n).padStart(2, '0')
   return `Agora em Rondônia (UTC−4): ${DIAS_SEMANA[d.getUTCDay()]}, ${dois(d.getUTCDate())}/${dois(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}, ${dois(h)}:${dois(d.getUTCMinutes())}.`
 }
 
@@ -1296,25 +1306,25 @@ const CLAWD_PANICO_ALTURA = 28
 const CLAWD_LARGURA = 26
 let clawdEstado = 'vez'
 let clawdQuadro = 0
-function mudarClawd($, estado) {
+function mudarClawd($: EngineInterface, estado: string) {
   if (clawdEstado === estado) return
   clawdEstado = estado
   $.ui.invalidate('ui.render')
 }
 // Chamado pelo relógio da faixa: só redesenha quando o quadro do Clawd muda de fato
-function passarQuadroClawd($) {
+function passarQuadroClawd($: EngineInterface) {
   clawdQuadro++
   const piscando = clawdQuadro % CLAWD_PISCA_A_CADA < 2
   if (clawdEstado === 'panico' || (clawdEstado === 'vez' && piscando)) $.ui.invalidate('ui.render')
 }
-function clawdPixels(art, cor, dy, dx) {
+function clawdPixels(art: string[], cor: string, dy: number, dx: number): string {
   let r = ''
   art.forEach((linha, y) => [...linha].forEach((c, x) => {
     if (c === '#') r += `<rect x="${x * 2 + dx}" y="${y * 2 + dy}" width="2" height="2" fill="${cor}"/>`
   }))
   return r
 }
-function clawdOlhos(dy, dx, estilo, cor) {
+function clawdOlhos(dy: number, dx: number, estilo: string, cor?: string): string {
   return [3, 8].map((x) => {
     const X = x * 2 + dx, Y = 2 + dy
     if (estilo === 'panico') return `<rect x="${X - 1}" y="${Y - 1}" width="4" height="4" fill="#FFFFFF"/><rect x="${X}" y="${Y}" width="2" height="2" fill="#000000"/>`
@@ -1325,16 +1335,16 @@ function clawdOlhos(dy, dx, estilo, cor) {
 const CLAWD_CORPO = ['..########..', '..########..', '############', '############', '..########..', '..########..']
 const CLAWD_PERNAS_A = ['', '', '', '', '', '', '..#.#..#.#..', '..#.#..#.#..']
 const CLAWD_PANICO_CORPO = ['...........#', '..########.#', '..##########', '############', '############', '..########..', '..########..', '..#.#..#.#..', '..#.#..#.#..']
-const clawdCache = {}
+const clawdCache: Record<string, string> = {}
 // Trabalhando (eu ou qualquer subagente): o mesmo Clawd andando do painel de agentes,
 // animado por CSS dentro do SVG, sem redesenhar a faixa
 const CLAWD_TRABALHANDO_ALTURA = 18
-function clawdSvgAgora(subRodando) {
+function clawdSvgAgora(subRodando: boolean) {
   const q = clawdQuadro
   let chave, altura, miolo, alt
   if (clawdEstado === 'panico') {
     // Treme 1 px para os lados; o "!" pisca. Corpo encostado no chão, mão em y 10, "!" acima dela.
-    const dx = [0, 1, 2, 1][q % 4]
+    const dx = [0, 1, 2, 1][q % 4] as number
     const aceso = q % 2 === 0
     chave = 'p' + dx + aceso
     altura = CLAWD_PANICO_ALTURA
@@ -1347,7 +1357,7 @@ function clawdSvgAgora(subRodando) {
     altura = CLAWD_TRABALHANDO_ALTURA
     alt = 'trabalhando'
     clawdCache[chave] ??= `<svg xmlns="http://www.w3.org/2000/svg" width="${CLAWD_LARGURA}" height="${altura}" viewBox="2 9 26 ${altura}">${CRAB_CSS}${crab(0, 0, 'other', false, true, 1)}</svg>`
-    return { source: clawdCache[chave], altura, alt }
+    return { source: clawdCache[chave] as string, altura, alt }
   } else {
     const piscando = q % CLAWD_PISCA_A_CADA === 0
     chave = 'n' + piscando
@@ -1357,10 +1367,10 @@ function clawdSvgAgora(subRodando) {
       clawdOlhos(0, 1, piscando ? 'fechado' : 'aberto')
   }
   clawdCache[chave] ??= `<svg xmlns="http://www.w3.org/2000/svg" width="${CLAWD_LARGURA}" height="${altura}" viewBox="0 0 ${CLAWD_LARGURA} ${altura}" shape-rendering="crispEdges">${miolo}</svg>`
-  return { source: clawdCache[chave], altura, alt }
+  return { source: clawdCache[chave] as string, altura, alt }
 }
 
-function svgBar(used, elapsed, status) {
+function svgBar(used: number, elapsed: number | null, status: Status | null): string {
   const { width, height } = SVG_BAR
   const r = height / 2
   const pct = clamp(used)
@@ -1382,17 +1392,17 @@ function svgBar(used, elapsed, status) {
   return parts.join('')
 }
 
-function clamp(percent) {
+function clamp(percent: number): number {
   return Math.min(Math.max(percent, 0), 100)
 }
 
 // The time of day as HH:MM, 24-hour, in JST
-function jstClock(ms) {
+function jstClock(ms: number): string {
   const jst = new Date(ms + JST_OFFSET_MS)
   return String(jst.getUTCHours()).padStart(2, '0') + 'h' + String(jst.getUTCMinutes()).padStart(2, '0')
 }
 
-function untilReset(ms) {
+function untilReset(ms: number): string {
   const minutes = Math.max(0, Math.ceil(ms / 60_000))
   const days = Math.floor(minutes / 1440)
   const hours = Math.floor((minutes % 1440) / 60)
@@ -1402,9 +1412,9 @@ function untilReset(ms) {
 }
 
 // Uma chamada que regravou quase tudo em vez de ler: diz o porquê. Prompt que encolheu (compactar, /clear) não conta.
-function porQueEsfriou(antes, agora) {
+function porQueEsfriou(antes: Chamada | null, agora: Chamada): string | null {
   if (!antes) return null
-  const total = (c) => c.lido + c.gravado + c.novo
+  const total = (c: Chamada) => c.lido + c.gravado + c.novo
   const tamanho = total(antes)
   if (total(agora) < AVISO_MIN_TOKENS || total(agora) < tamanho * 0.7) return null
   if (agora.lido >= tamanho * 0.5 || agora.gravado === 0) return null
@@ -1413,12 +1423,12 @@ function porQueEsfriou(antes, agora) {
   return 'mudou esforço, ferramentas ou CLAUDE.md'
 }
 
-function milhares(n) {
+function milhares(n: number): string {
   return n >= 1000 ? Math.round(n / 1000) + 'k' : String(n)
 }
 
 // Pílula do cache: quente (barato), esfriando, ou frio (a próxima mensagem relê tudo a preço cheio)
-function cacheMeter({ Box, Text }, surface, now) {
+function cacheMeter({ Box, Text }: Els, surface: string, now: number) {
   if (!ultimaResposta) return null
   const resta = ultimaResposta + cacheMs() - now
   const min = Math.max(0, Math.ceil(resta / 60_000))
@@ -1451,13 +1461,13 @@ function cacheMeter({ Box, Text }, surface, now) {
 }
 
 // Chamado pelo session.start do register.tsx (um evento só pode ter um hook sem filtro por plugin)
-async function inicio($) {
+async function inicio($: EngineInterface) {
   ticker?.cancel()
   rateLimits = []
   measuredAt = 0
   ownKey = KEY_PREFIX + (await $.session.id())
   // A hora da última resposta fica guardada por sessão: reiniciar o app não esquenta o cache.
-  ultimaResposta = (await $.store.get('cache:' + (await $.session.id()))) ?? 0
+  ultimaResposta = ((await $.store.get('cache:' + (await $.session.id()))) as number | undefined) ?? 0
   const usage = await $.session.usage()
   context = usage.context
   if (usage.rateLimits.length > 0) await publishSnapshot($, usage.rateLimits)
@@ -1471,7 +1481,7 @@ async function inicio($) {
 }
 
 // Fires after each turn, and when a rate-limit window moves a whole point
-async function fimDeTurno($) {
+async function fimDeTurno($: EngineInterface) {
   if (compactarDepois) {
     compactarDepois = false
     compactar($)
@@ -1481,10 +1491,10 @@ async function fimDeTurno($) {
 
 // Compacta depois que o turno solta: o app recusa compactar com turno rodando,
 // entao tenta a cada 3 s, ate 10 vezes, por fora do hook
-function compactar($) {
+function compactar($: EngineInterface) {
   let tentativas = 0
   let ocupado = false
-  const h = $.clock.every(3000, async () => {
+  const h: Timer | (() => void) = $.clock.every(3000, async () => {
     if (ocupado) return
     ocupado = true
     tentativas++
@@ -1512,9 +1522,9 @@ function compactar($) {
 }
 
 // Depois de compactar, o ctx só chega certo alguns segundos depois: relê 5 vezes, de 2 em 2 s
-function reler($) {
+function reler($: EngineInterface) {
   let vezes = 0
-  const h = $.clock.every(2000, async () => {
+  const h: Timer | (() => void) = $.clock.every(2000, async () => {
     vezes++
     try {
       context = (await $.session.usage()).context

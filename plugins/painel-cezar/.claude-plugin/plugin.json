@@ -1,1 +1,1 @@
-{ "name": "painel-cezar", "version": "0.13.0", "description": "Faixa com ctx, 5h, semana, ⏱ cache e botões; painel de agentes com custo em % 5h; hora de Rondônia em cada mensagem", "types": "./types/index.d.ts" }
+{ "name": "painel-cezar", "version": "0.13.1", "description": "Faixa com ctx, 5h, semana, ⏱ cache e botões; painel de agentes com custo em % 5h; hora de Rondônia em cada mensagem", "types": "./types/index.d.ts" }

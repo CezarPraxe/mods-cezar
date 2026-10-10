@@ -1079,7 +1079,7 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
             }),
         elements.Button({
           key: 'compactar',
-          label: '🗜️',
+          label: '📦',
           onPress: () => {
             $.ui.toast('Compactando…')
             compactar($)

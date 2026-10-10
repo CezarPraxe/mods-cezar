@@ -4,7 +4,7 @@ Atualizado: 10/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **ve
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
-- **Faixa acima do prompt** (desktop/terminal; o celular não tem): `ctx` · barra do 5h · barra da semana · `⏱ 42m` (cache) · **Clawd** · **🗜️** (só compacta) · **💾**.
+- **Faixa acima do prompt** (desktop/terminal; o celular não tem): `ctx` · barra do 5h · barra da semana · `⏱ 42m` (cache) · **Clawd** · **📦** (só compacta) · **💾**.
   - 5h e semana sem rótulo: a ordem e o horário identificam (5h em hora do dia, semana em dias).
   - A bolinha nas barras marca o tempo da janela que já passou; a barra é o uso. Barra antes da bolinha = folga.
 - **Clawd** (só no desktop; no terminal é o botão `sub`): clique abre o painel de agentes (`$.ui.open({ id: 'agentes-cezar' })`). Três estados:
@@ -58,7 +58,7 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
   - se SDR e Estagiário passaram a acertar a saudação.
 - **Em aberto:**
   - % 5h no painel de agentes, ainda não visto funcionando;
-  - 0.13.x no app (fantasias: advogado-* de terno com maleta, executor-*/obra-longa-* de capacete; tsc zerado em 0.13.1): Clawd andando com subagente rodando, 🗜️, painel de agentes vindo do próprio plugin.
+  - 0.13.x no app (fantasias: advogado-* de terno com maleta, executor-*/obra-longa-* de capacete; tsc zerado em 0.13.1): Clawd andando com subagente rodando, 📦, painel de agentes vindo do próprio plugin.
   - toast de cache frio, ainda não disparado.
 - **Depois:**
 - `usage-meter@claude-mods` segue desligado (não apagado).

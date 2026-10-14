@@ -1169,7 +1169,9 @@ async function scan($: EngineInterface) {
     if (!key.startsWith(KEY_PREFIX)) continue
     const reading = await $.store.get(key)
     entries.push({ key, reading })
-    if (!isReading(reading) || reading.at < cutoff) continue
+    // Só a leitura da própria sessão: o CLI e o desktop podem estar em contas diferentes, e a
+    // leitura de uma sessão de outra conta mostrava o limite errado
+    if (key !== ownKey || !isReading(reading) || reading.at < cutoff) continue
     if (!newest || reading.at > newest.reading.at || (reading.at === newest.reading.at && key > newest.key)) {
       newest = { key, reading }
     }

@@ -164,6 +164,15 @@ const TIER_COLOR: Record<string, string> = {
   light: '#1D9E75',
   advogado: '#3B5B92',
   executor: '#BA7517',
+  contador: '#2E8B57',
+  pesquisador: '#8A6D3B',
+  revisor: '#C0392B',
+  redator: '#4A4E57',
+  cobranca: '#2E7D32',
+  atendente: '#25D366',
+  obra: '#BA7517',
+  pintor: '#7E57C2',
+  cientista: '#00897B',
   other: '#888780',
 }
 
@@ -211,12 +220,26 @@ const costOf = (model: string, u: Usage): number => {
 const windowOf = (model: string): number => (/haiku-4/i.test(model) ? 200_000 : 1_000_000)
 
 // `savvy-careful`, or `savvy-flow:savvy-careful` when the agents ship in a plugin.
+const bareSavvy = (type: string): boolean => type.replace(/^[^:]*:/, '').startsWith('savvy-')
+
 const tierOf = (type: string): string => {
   const bare = type.replace(/^[^:]*:/, '')
   const t = bare.replace(/^savvy-/, '').toLowerCase()
-  // Agentes da casa: advogado-* de terno, executor-*/obra-longa-* de capacete de obra
-  if (/^advogado-/i.test(bare)) return 'advogado'
-  if (/^(executor|obra-longa)-/i.test(bare)) return 'executor'
+  // Agentes da casa: uma fantasia por função (a primeira regra que bate vence)
+  const casa: [RegExp, string][] = [
+    [/^(relatorio-fatura|advogado-cliente-faturas)/i, 'contador'],
+    [/^pesquisador-/i, 'pesquisador'],
+    [/^(revisor-|advogado-cliente-conferente)/i, 'revisor'],
+    [/^advogado-cliente-ms-redator/i, 'redator'],
+    [/^advogado-cliente-cobranca/i, 'cobranca'],
+    [/^advogado-cliente-contato-whatsapp/i, 'atendente'],
+    [/^advogado-/i, 'advogado'],
+    [/^obra-longa-/i, 'obra'],
+    [/^executor-/i, 'executor'],
+    [/^animador-/i, 'pintor'],
+    [/^excecao-/i, 'cientista'],
+  ]
+  for (const [re, nome] of casa) if (re.test(bare)) return nome
   return t in TIER_COLOR && bare.startsWith('savvy-') ? t : 'other'
 }
 
@@ -347,6 +370,15 @@ const CRAB_CSS = `<style>
 .c-executor.run .it{transform-origin:100% 100%;animation:twist .5s ease-in-out infinite}
 .c-advogado.run .it{transform-origin:50% 0;animation:swing 1s ease-in-out infinite}
 @keyframes swing{25%{transform:rotate(8deg)}75%{transform:rotate(-8deg)}}
+.c-contador.run .ka{animation:contadorA .5s steps(1) infinite}.c-contador.run .kb{animation:contadorA .5s steps(1) infinite -.25s}@keyframes contadorA{0%{opacity:1}50%{opacity:0}}
+.c-pesquisador.run .it{animation:pesquisadorA 1s ease-in-out infinite}@keyframes pesquisadorA{0%,100%{transform:translateX(0)}50%{transform:translateX(-10px)}}
+.c-revisor.run .pn{transform-origin:0% 100%;animation:revisorA .5s steps(1) infinite}@keyframes revisorA{0%{transform:translate(0,0)}25%{transform:translate(-1px,1px)}50%{transform:translate(-2px,0)}75%{transform:translate(-1px,-1px)}}
+.c-redator.run .pn{transform-origin:0% 100%;animation:redatorA 1s steps(1) infinite}@keyframes redatorA{0%{transform:translate(0,0) rotate(0deg)}25%{transform:translate(-1px,1px) rotate(-5deg)}50%{transform:translate(0,0) rotate(3deg)}75%{transform:translate(1px,1px) rotate(-3deg)}}
+.c-cobranca.run .pn{transform-origin:50% 50%;transform-box:fill-box;animation:cobrancaA 1s ease-in-out infinite}@keyframes cobrancaA{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.08)}}
+.c-atendente.run .d1,.c-atendente.run .d2,.c-atendente.run .d3{animation:atendenteD 1s steps(1) infinite}.c-atendente.run .d2{animation-delay:-.67s}.c-atendente.run .d3{animation-delay:-.34s}@keyframes atendenteD{0%{opacity:1}34%{opacity:.25}}
+.c-obra.run .sh{transform-origin:50% 45%;animation:obraS .6s ease-in-out infinite}@keyframes obraS{0%,100%{transform:rotate(-9deg)}50%{transform:rotate(9deg)}}
+.c-pintor.run .pn{transform-origin:50% 100%;animation:pintorA .5s ease-in-out infinite}@keyframes pintorA{0%,100%{transform:rotate(-14deg)}50%{transform:rotate(14deg)}}
+.c-cientista.run .bb{animation:cientistaA 1s steps(4) infinite}.c-cientista.run .bc{animation:cientistaA 1s steps(4) infinite -.5s}@keyframes cientistaA{0%{transform:translateY(0);opacity:1}70%{opacity:1}100%{transform:translateY(-5px);opacity:0}}
 @media (prefers-reduced-motion: reduce){.run,.run g{animation:none!important}}
 </style>`
 
@@ -408,6 +440,142 @@ const COSTUMES: Record<string, (f: Fill, t: string) => void> = {
     f(13, 5, 4, 2, t)
     stamp(f, 0, 10, ['.s.s', 'sss.', '.s..', '.s..'], { s: '#8E929A' }, 'it')
   },
+  contador: (f, t) => {
+  crabBody(f, -4, 'it')
+  // viseira: faixa escura, aba verde, sombra da aba
+  stamp(f, 7, 6, ['..dddddddddddd..', '.gggggggggggggg.', 'gggggggggggggggg', 'mmmmmmmmmmmmmmmm'], { d: '#1F5E3A', g: '#3FB574', m: '#2E8B57' })
+  f(9, 7, 4, 1, '#8FE0B0')
+  // calculadora (x23-28, y3-9), na garra que subiu
+  stamp(f, 23, 3, ['dddddd', 'dlllld', 'dddddd', 'dwwwwd', 'dwwwwd', 'dwwwwd', 'dddddd'], { d: '#3A3D44', l: '#B8F0C8', w: '#D5D7DC' }, 'it')
+  f(24, 4, 1, 1, '#2E8B57', 'it')
+  // teclas que piscam, em dois grupos alternados
+  f(24, 6, 1, 1, '#F5C542', 'ka'); f(26, 6, 1, 1, '#F5C542', 'ka'); f(25, 7, 1, 1, '#F5C542', 'ka'); f(27, 8, 1, 1, '#F5C542', 'ka')
+  f(25, 6, 1, 1, '#E05A4F', 'kb'); f(27, 7, 1, 1, '#E05A4F', 'kb'); f(24, 8, 1, 1, '#E05A4F', 'kb'); f(26, 8, 1, 1, '#E05A4F', 'kb')
+},
+  pesquisador: (f, t) => {
+  crabBody(f, -4, 'it')
+  stamp(f, 6, 2, [
+    '.....kkkkkkkk.....',
+    '....khhkkkkkkk....',
+    '...khhkkkkkkkkk...',
+    '...kkkkkkkkkkkk...',
+    '..bbbbbbbbbbbbbb..',
+  ], { k: '#D8C48A', h: '#EFE3B8', b: '#6B4A22' })
+  stamp(f, 3, 7, [
+    'ssssssssssssssssssssss',
+    '.dddddddddddddddddddd.',
+  ], { s: '#B89F62', d: '#8A7440' })
+  stamp(f, 20, 14, [
+    '.rrrr.',
+    'rggwgr',
+    'rgwggr',
+    'rggggr',
+    'rggggr',
+    '.rrrr.',
+  ], { r: '#4A3418', g: '#CDEBF5', w: '#FFFFFF' }, 'it')
+  stamp(f, 25, 19, ['r.', 'rr', '.r', '.r'], { r: '#4A3418' }, 'it')
+},
+  revisor: (f, t) => {
+  crabBody(f)
+  const F = '#2B2D42', L = '#F4F1E8'
+  // armação 6x6 com lente clara; os olhos (9,12) e (19,12) ficam dentro
+  stamp(f, 7, 10, ['FFFFFF', 'FLLLLF', 'FLLLLF', 'FLLLLF', 'FLLLLF', 'FFFFFF'], { F, L })
+  stamp(f, 17, 10, ['FFFFFF', 'FLLLLF', 'FLLLLF', 'FLLLLF', 'FLLLLF', 'FFFFFF'], { F, L })
+  f(9, 12, 2, 2, '#1F1E1D'); f(19, 12, 2, 2, '#1F1E1D')
+  f(13, 12, 4, 1, F)
+  // caneta na garra direita, ponta para baixo e para a esquerda
+  stamp(f, 22, 12, [
+    '.....rr.', '....rRr.', '...rRr..', '..rRr...', '.wRr....', '.kw.....', 'k.......'
+  ].map(s => s), { r: '#C0392B', R: '#E85D4A', w: '#F4F1E8', k: '#8E929A' }, 'pn')
+},
+  redator: (f, t) => {
+  crabBody(f, -4, 'pn')
+  stamp(f, 7, 16, [
+    'nnnnnwwrrwwnnnnn',
+    'nnnnnnwrrwnnnnnn',
+    'nnnnnnnrrnnnnnnn',
+    'nnnnnnnrrnnnnnnn',
+    'nnnnnnnnnnnnnnnn',
+    'nnnnnnnnnnnnnnnn'], { n: '#4A4E57', w: '#F8F6F1', r: '#7B1E3A' })
+  f(3, 14, 4, 2, '#4A4E57'); f(23, 10, 4, 2, '#4A4E57', 'pn')
+  // pena: haste marrom, barbas creme, ponta de tinta
+  stamp(f, 22, 1, [
+    '.....ccc',
+    '....cccc',
+    '...cccke',
+    '..ccckce',
+    '..ccckce',
+    '...cckc.',
+    '...cck..',
+    '...ck...',
+    '...k....',
+    '...k....',
+    '..k.....',
+    '..k.....',
+    '.k......',
+    'd.......'], { c: '#F6EFD8', e: '#CDBF98', k: '#6B4A2B', d: INK }, 'pn')
+},
+  cobranca: (f, t) => {
+  crabBody(f)
+  stamp(f, 7, 16, ['nnnnnwwgggwwnnnnn'.slice(0, 5) + 'wwggwwnnnnn', 'nnnnnnwggwnnnnnn', 'nnnnnnnggnnnnnnn', 'nnnnnnnggnnnnnnn', 'nnnnnnnnnnnnnnnn', 'nnnnnnnnnnnnnnnn'], { n: '#22304F', w: '#F8F6F1', g: '#2E7D32' })
+  f(3, 14, 4, 2, '#22304F'); f(23, 14, 4, 2, '#22304F')
+  stamp(f, 24, 9, ['.dddd.', 'dhgsgd', 'dgsssd', 'dgsggd', 'dgsssd', 'dgggsd', 'dggsgd', '.dddd.'], { d: '#B8860B', g: '#F5C542', h: '#FBE08A', s: '#8A5A00' }, 'pn')
+},
+  atendente: (f, t) => {
+  crabBody(f)
+  const H = '#6B7280', L = '#B8BEC9', D = '#3B4048'
+  // arco do headset sobre a cabeca
+  stamp(f, 7, 6, ['...llllllll...', '.hh........hh.', 'hh..........hh', 'h............h'].map(r => r.padEnd(16, '.')), { l: L, h: H })
+  f(7, 9, 1, 2, H); f(22, 9, 1, 2, H)
+  // fones nas laterais
+  f(6, 11, 3, 5, H); f(6, 11, 1, 5, D); f(8, 12, 1, 3, L)
+  f(21, 11, 3, 5, H); f(23, 11, 1, 5, D); f(21, 12, 1, 3, L)
+  // microfone: haste curva ate perto da boca
+  f(7, 16, 1, 1, H); f(8, 17, 1, 1, H); f(9, 18, 2, 1, H); f(11, 18, 2, 2, D)
+  // balao WhatsApp
+  f(20, 0, 9, 1, t); f(19, 1, 11, 4, t); f(20, 5, 9, 1, t); f(22, 6, 2, 1, t); f(22, 7, 1, 1, t)
+  f(21, 2, 2, 2, '#FFFFFF', 'd1'); f(24, 2, 2, 2, '#FFFFFF', 'd2'); f(27, 2, 2, 2, '#FFFFFF', 'd3')
+},
+  obra: (f, t) => {
+  crabBody(f)
+  stamp(f, 6, 4, ['.....yyyyyyyy.....', '...yyyyyhhyyyyy...', '..yyyyyyhhyyyyyy..', '..yyyyyyhhyyyyyy..', '.yyyyyyyhhyyyyyyy.', 'dddddddddddddddddd'], { y: '#F5C542', h: '#FBE08A', d: '#C99A1E' })
+  f(13, 5, 4, 2, t)
+  for (let y = 5; y <= 20; y++) { const x = Math.round(27 - (y - 5) * 2 / 16); f(x, y, 2, 1, '#8A5A2B', 'sh'); f(x, y, 1, 1, '#B07A42', 'sh') }
+  f(27, 4, 2, 1, '#6B4420', 'sh')
+  stamp(f, 23, 20, ['.kGGGk', 'kGGGGk', 'kGGwGk', 'kGGGGk', '.kGGk.', '..kk..'].map(r => r.padEnd(6, '.')), { k: '#5E6168', G: '#A9ADB5', w: '#D8DBE0' }, 'sh')
+  f(23, 16, 2, 2, '#D97757', 'sh'); f(27, 16, 1, 2, '#D97757', 'sh')
+},
+  pintor: (f, t) => {
+  crabBody(f, -4, 'pn')
+  stamp(f, 4, 4, ['......ss........', '....rrrrrrrr....', '..rrrrrrrrrrrr..', '.rrrrhrrrrrrrrr.', 'rrrrrrrrrrrrrrrr', 'dddddddddddddddd', '.dd.............'], { r: '#B03A48', h: '#D8707A', s: '#5A1A22', d: '#7E2230' })
+  stamp(f, 23, 3, ['.mm.', 'mmmm', '.gg.', '.gg.', '.bb.', '.bb.', '.bb.', '.bb.'], { m: '#26C6DA', g: '#B0B4BC', b: '#8B5A2B' }, 'pn')
+},
+  cientista: (f, t) => {
+  crabBody(f)
+  // jaleco
+  stamp(f, 7, 15, [
+    'wwwwwww..wwwwwww',
+    'wwwwwwwsswwwwwww',
+    'wwbwwwwsswwwwwww',
+    'wsssswwsswwwwwww',
+    'wswwswwsswwwwwww',
+    'wswwswwsswwwwwww',
+    'wsssswwsswwwwwww'
+  ], { w: '#FFFFFF', s: '#B9C0C9', b: '#3B6FD4' })
+  // óculos: armação escura, lente clara translúcida, olho preto visível no meio
+  f(12, 12, 6, 2, '#3A3F47')
+  const L = ['tttttt', 'tcccct', 'tceect', 'tceect', 'tttttt']
+  stamp(f, 7, 10, L, { t: t, c: '#CFEFF5', e: INK }, 'ox')
+  stamp(f, 17, 10, L, { t: t, c: '#CFEFF5', e: INK }, 'ox')
+  // tubo de ensaio
+  stamp(f, 1, 3, [
+    'oooo', 'oeeo', 'oeeo', 'oeeo', 'oeeo',
+    'olLo', 'ollo', 'ollo', 'ollo', 'ollo', 'ollo', 'oooo'
+  ], { o: '#5B8FA3', e: '#DDF1F7', l: '#6FD33F', L: '#B7F58A' })
+  // bolhas
+  f(2, 11, 1, 1, '#F2FFE8', 'bb'); f(3, 8, 1, 1, '#F2FFE8', 'bb')
+  f(3, 10, 1, 1, '#F2FFE8', 'bc'); f(2, 7, 1, 1, '#F2FFE8', 'bc')
+},
   other: f => crabBody(f),
 }
 
@@ -489,7 +657,7 @@ const agentSvg = (W: number, a: AgentRun, at: number): string => {
     66,
     `${crab(0, 14, costumeOf(a.type), false, a.status === 'running')}
 <text class="t" x="42" y="18" font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(a.description || a.type, 13, textW))}</text>
-<text x="42" y="34" font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(tier === 'other' || tier === 'advogado' || tier === 'executor' ? a.type : tier)}</tspan><tspan class="s">  ${xml(meta.join('  ·  '))}</tspan></text>
+<text x="42" y="34" font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(tier === 'other' || !bareSavvy(a.type) ? a.type : tier)}</tspan><tspan class="s">  ${xml(meta.join('  ·  '))}</tspan></text>
 ${steps && stepsW > 30 ? `<text class="t" x="42" y="49" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(fitText(steps, 11, stepsW))}</text>` : ''}
 <text class="s" x="${42 + barW}" y="49" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${stats}</text>
 <rect class="k" x="42" y="55" width="${barW}" height="4" rx="2"/><rect${progress === null ? ' class="m"' : ''} x="42" y="55" width="${fillW}" height="4" rx="2"${progress === null ? '' : ` fill="${color}"`}/>

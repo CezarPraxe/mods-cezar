@@ -834,6 +834,7 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
     return started
   })
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    try {
     const s = tr()
     const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
@@ -962,6 +963,11 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
         )}
       </Box>
     )
+    } catch (err) {
+      // Mostra o erro no próprio painel em vez de deixá-lo vazio ("has not drawn")
+      const { Text } = $.ui.resolve(e)
+      return <Text color="red">painel de agentes falhou: {String((err as Error)?.stack ?? err).slice(0, 600)}</Text>
+    }
   })
 }
 

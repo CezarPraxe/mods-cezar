@@ -1,6 +1,6 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 10/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.14.0**) · público em github.com/CezarPraxe/mods-cezar
+Atualizado: 10/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.14.1**) · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
@@ -59,6 +59,7 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
   - se o clique no Clawd ainda abre os Agentes;
   - se SDR e Estagiário passaram a acertar a saudação.
 - **Em aberto:**
+  - 15/10: painel de Agentes vazio ("painel-cezar has not drawn in this pane") num chat com subagente rodando; no teste isolado (`claude plugin test`, mount com `requestId` no topo) ele desenha. 0.14.1 mostra o erro no painel em vez de ficar vazio: ver o texto vermelho da próxima vez.
   - % 5h no painel de agentes, ainda não visto funcionando;
   - 0.13.x no app (fantasias: advogado-* de terno com maleta, executor-*/obra-longa-* de capacete; tsc zerado em 0.13.1): Clawd andando com subagente rodando, 📦, painel de agentes vindo do próprio plugin.
   - toast de cache frio, ainda não disparado.

@@ -1,6 +1,6 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 15/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.14.1**) · público em github.com/CezarPraxe/mods-cezar
+Atualizado: 15/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.15.0**) · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
@@ -14,6 +14,7 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
 - **💾**: manda o prompt do ESTADO.md (aviso na hora, segundo clique ignorado) e compacta sozinho quando o turno acaba. Depois relê o ctx 5 vezes, de 2 em 2 s.
 - **⏱ cache**: conta do **início** de cada chamada da conversa principal (`turn.step`), guardado no `$.store` (`cache:<sessionId>`), então reiniciar o app não esquenta. Dura 1 h, ou 5 min se a 5h ou a semana chegar a 100% (uso extra). Toast "⏱ Cache frio (motivo): regravou Nk tokens" quando uma chamada ≥ 20k regrava em vez de ler. Motivos: trocou o modelo, passou do tempo, ou mudou esforço/ferramentas/CLAUDE.md. Compactação não avisa.
 - **Hora de Rondônia em toda mensagem:** o `prompt.submit` anexa ao contexto (o modelo lê, o Cezar não vê) "Agora em Rondônia (UTC−4): dia da semana, dd/mm/aaaa, hh:mm". Motivo: SDR e Estagiário mandavam "bom dia" de tarde, e a regra no AGENTS.md não resolvia porque o modelo não tem relógio.
+- **⚙ N** (0.15.0): aparece na faixa quando há comando, monitor, workflow ou agendamento rodando em segundo plano; clique lista o que é. Anota no `tool.call` (run_in_background, Monitor, Workflow, CronCreate, ScheduleWakeup) e tira quando chega o `<task-notification>` com status final (`session.append`), no TaskStop/CronDelete ou no fim do prazo do ScheduleWakeup. Subagente não conta: ele já faz o Clawd andar. O engine não dá lista de tarefas ao mod (o `background_tasks` é só dos hooks de settings).
 - Toast ao passar de 70% de contexto.
 - **Limites (5h e semana) por sessão** desde 0.13.3: antes a faixa usava a leitura mais nova de qualquer sessão, e com o CLI numa conta e o desktop em outra trocava o limite de uma pela outra. O engine não informa a conta, então cada sessão mostra só a própria.
 - **Fantasias por função** (0.14.0, uma por Sonnet): contador (relatorio-fatura, faturas), pesquisador, revisor/conferente, redator (terno grafite), advogado, cobrança (gravata verde e moeda), atendente (WhatsApp), executor, obra-longa (pá), animador (pintor), exceção (cientista). Regras em `tierOf` (a primeira que bate vence). Rascunhos e prévia (`elenco.png`, `c-*.mjs`, `render.mjs`) em `C:\Users\Cezar\claudecode\_archive\tmp\fantasias`.
@@ -55,5 +56,5 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
 - **Próximo passo:** o painel de Agentes ficou vazio ("painel-cezar has not drawn in this pane") no chat "PWA receitas e estoque" em 15/10, com subagente rodando. No teste isolado ele desenha. A 0.14.1 mostra o erro em vermelho no próprio painel: o Cezar fecha o painel, clica no Clawd (ou arquiva/desarquiva) e manda o print do texto vermelho. Com ele, corrigir a causa.
 - **Ideias oferecidas, sem resposta do Cezar:** notificação do Windows (subagente terminou, Clawd em pânico, 5h > 90%) e a lista de tarefas (TodoWrite/TaskCreate) na faixa ou no painel.
 - **Conferido no app:** 💾; hora injetada; 📦 (0.13.1); fantasias por função no painel (0.14.0, "amei"); limites por sessão (0.13.3, a faixa bate com o painel do desktop).
-- **Falta ver:** o pânico de verdade (só com permissão ligada ou pergunta com opções); o Clawd da faixa andando com subagente; se SDR e Estagiário acertam a saudação; o toast de cache frio.
+- **Falta ver:** o ⚙ aparecendo e sumindo sozinho quando a tarefa termina (os ids saem do texto do resultado e do aviso: se não sumir, é o formato do id); o pânico de verdade (só com permissão ligada ou pergunta com opções); o Clawd da faixa andando com subagente; se SDR e Estagiário acertam a saudação; o toast de cache frio.
 - `usage-meter@claude-mods` e `savvy-progress@claude-kit` seguem desligados (não apagados).

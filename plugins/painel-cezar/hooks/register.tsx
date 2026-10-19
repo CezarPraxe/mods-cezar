@@ -971,6 +971,52 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
   })
 }
 
+
+// ---- Segundo plano: comando, monitor, workflow e agendamento que seguem rodando com o Clawd parado ----
+type Fundo = { ids: string[]; tipo: string; desc: string; ate?: number }
+let fundo: Fundo[] = []
+const FUNDO_TIPO: Record<string, string> = { Bash: 'comando', PowerShell: 'comando', Monitor: 'monitor', Workflow: 'workflow', CronCreate: 'agendado', ScheduleWakeup: 'agendado' }
+
+function textoDe(x: unknown): string {
+  try { return typeof x === 'string' ? x : JSON.stringify(x) ?? '' } catch { return '' }
+}
+
+// Chamado depois que a ferramenta respondeu: anota o que ficou rodando
+function anotarFundo(e: Record<string, any>, r: unknown, agora: number) {
+  const tipo = FUNDO_TIPO[e.tool]
+  if (e.tool === 'TaskStop' || e.tool === 'CronDelete') {
+    const alvo = String(e.task_id ?? e.shell_id ?? e.id ?? '')
+    fundo = fundo.filter((f) => !f.ids.includes(alvo))
+    return
+  }
+  if (!tipo) return
+  if ((e.tool === 'Bash' || e.tool === 'PowerShell') && !e.run_in_background) return
+  if (e.tool === 'ScheduleWakeup' && e.stop) { fundo = fundo.filter((f) => f.tipo !== 'agendado' || f.ate === undefined); return }
+  const txt = textoDe((r as { text?: unknown })?.text ?? (r as { result?: unknown })?.result)
+  if ((r as { isError?: boolean })?.isError || (r as { deny?: string })?.deny) return
+  const ids = [e.tool_use_id, ...[...txt.matchAll(/\b(?:ID|id|task_id|taskId|job_id)["':\s]+([A-Za-z0-9_-]{4,})/g)].map((m) => m[1])].filter(Boolean)
+  const desc = String(e.description ?? e.name ?? e.reason ?? e.prompt ?? e.command ?? tipo).replace(/\s+/g, ' ').slice(0, 60)
+  const ate = e.tool === 'ScheduleWakeup' ? agora + (Number(e.delaySeconds) || 60) * 1000 + 60_000 : undefined
+  fundo.push({ ids, tipo, desc, ate })
+}
+
+// Aviso de tarefa terminada entra na conversa como <task-notification>: tira ela da lista
+function baixarFundo(msg: unknown) {
+  const txt = textoDe(msg)
+  if (!txt.includes('task-notification')) return false
+  const st = /<status>\s*([a-z_]+)/.exec(txt)?.[1]
+  if (st && !['completed', 'failed', 'killed', 'stopped', 'error', 'cancelled'].includes(st)) return false
+  const ids = [...txt.matchAll(/<(?:task-id|tool-use-id|task_id|tool_use_id)>\s*([^<\s]+)/g)].map((m) => m[1])
+  const antes = fundo.length
+  fundo = fundo.filter((f) => !f.ids.some((i) => ids.includes(i)))
+  return fundo.length !== antes
+}
+
+function fundoAtivo(agora: number) {
+  fundo = fundo.filter((f) => f.ate === undefined || f.ate > agora)
+  return fundo
+}
+
 const LIMITE = 70
 
 const contexto = atom({ plugin: 'painel-cezar', key: 'contexto' }, 0)
@@ -1098,7 +1144,13 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
   on('tool.call', async ($, e, next) => {
     if (e.tool === 'AskUserQuestion' || e.tool === 'ExitPlanMode') mudarClawd($, 'panico')
     try {
-      return await next(e)
+      const r = await next(e)
+      try {
+        const antes = fundo.length
+        anotarFundo(e as Record<string, any>, r, await $.clock.now())
+        if (fundo.length !== antes) $.ui.invalidate('ui.render')
+      } catch {}
+      return r
     } finally {
       if (clawdEstado === 'panico') mudarClawd($, 'trabalhando')
     }
@@ -1170,6 +1222,14 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
   })
 
 
+  // Tarefa em segundo plano terminou: o aviso entra como linha da conversa
+  on('session.append', async ($, e, next) => {
+    try {
+      if (!e.agentId && baixarFundo(e.message)) $.ui.invalidate('ui.render')
+    } catch {}
+    return next(e)
+  })
+
   // Clique no Clawd da faixa: abre o painel de agentes
   on('ui.message', async ($, e, next) => {
     if (e.element === 'clawd') {
@@ -1236,6 +1296,17 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
       children: [
         ...meters.map((m) => meter(elements, gauge, m)),
         ...(cachePill ? [cachePill] : []),
+        ...(() => {
+          const ativos = fundoAtivo(now)
+          if (!ativos.length) return []
+          return [
+            elements.Button({
+              key: 'fundo',
+              label: '⚙ ' + ativos.length,
+              onPress: () => $.ui.toast('Em segundo plano: ' + ativos.map((f) => f.tipo + ' · ' + f.desc).join(' | ')),
+            }),
+          ]
+        })(),
         e.surface === 'terminal'
           ? elements.Button({ key: 'agentes', label: 'sub', onPress: () => void $.ui.open({ id: 'agentes-cezar', title: 'Agentes' }) })
           : elements.Box({
@@ -1639,6 +1710,7 @@ function cacheMeter({ Box, Text }: Els, surface: string, now: number) {
 // Chamado pelo session.start do register.tsx (um evento só pode ter um hook sem filtro por plugin)
 async function inicio($: EngineInterface) {
   ticker?.cancel()
+  fundo = []
   rateLimits = []
   measuredAt = 0
   ownKey = KEY_PREFIX + (await $.session.id())

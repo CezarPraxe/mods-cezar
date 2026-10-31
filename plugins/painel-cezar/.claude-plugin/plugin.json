@@ -1,1 +1,1 @@
-{ "name": "painel-cezar", "version": "0.17.0", "description": "Faixa em pílulas com ctx, semana, ⏱ cache, Clawd e botões desenhados; painel de agentes com custo em % da semana; hora de Rondônia em cada mensagem", "types": "./types/index.d.ts" }
+{ "name": "painel-cezar", "version": "0.18.0", "description": "Faixa em pílulas com ctx, semana, ⏱ cache, Clawd e botões desenhados; painel de agentes com erro no topo e a conversa de cada agente; hora de Rondônia em cada mensagem", "types": "./types/index.d.ts" }

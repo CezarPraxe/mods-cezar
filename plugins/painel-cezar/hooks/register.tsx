@@ -255,37 +255,13 @@ const norm = (s: string): string => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, 
 const fmtTokens = (n: number): string =>
   n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
 
-// Cezar: custo em % do limite de 5h. Câmbio = quanto o 5h subiu ÷ quanto a sessão gastou em $,
-// medido desde que a sessão abriu. Até o 5h subir 1 ponto, mostra em $.
-let base5h: { pct: number; usd: number } | null = null
-let pctPorUsd = 0
+// Cezar: custo em % da semana, pelo câmbio da seção "Ritmo da semana".
+const USD_POR_PONTO = 23.5
+let usdPorPonto = USD_POR_PONTO
 const fmtCost = (usd: number): string => {
-  if (pctPorUsd > 0) {
-    const p = usd * pctPorUsd
-    return `${p < 10 ? p.toFixed(1).replace('.', ',') : Math.round(p)}% 5h`
-  }
-  return `$${usd < 10 ? usd.toFixed(2) : usd.toFixed(1)}`
-}
-async function medirCambio($: any) {
-  const u = await $.session.usage()
-  const cinco = u.rateLimits.find((r: any) => r.kind === 'five_hour')
-  const usd = u.cost?.usd
-  if (!cinco || typeof usd !== 'number') return
-  // Ponto de partida guardado por sessão + janela de 5h, para sobreviver ao reload
-  const chave = 'cambio:' + (await $.session.id()) + ':' + (cinco.resetsAt ?? '')
-  if (!base5h) base5h = ((await $.store.get(chave)) as any) ?? null
-  if (!base5h || cinco.percentUsed < base5h.pct || usd < base5h.usd) {
-    base5h = { pct: cinco.percentUsed, usd }
-    await $.store.set(chave, base5h)
-    return
-  }
-  const dPct = cinco.percentUsed - base5h.pct
-  const dUsd = usd - base5h.usd
-  if (dPct >= 1 && dUsd > 0) {
-    const antes = pctPorUsd
-    pctPorUsd = dPct / dUsd
-    if (!antes) $.ui.invalidate('ui.render')
-  }
+  const p = usd / usdPorPonto
+  const texto = p < 0.1 ? p.toFixed(2) : p < 10 ? p.toFixed(1) : String(Math.round(p))
+  return `${texto.replace('.', ',')}% sem`
 }
 
 const fmtTime = (ms: number): string => {
@@ -712,7 +688,6 @@ async function togglePane($: EngineInterface): Promise<boolean> {
 
 async function agentesInicio($: EngineInterface, options: { language?: unknown }): Promise<void> {
   lang = await detectLang($, options.language)
-  await medirCambio($).catch(() => {})
   await $.command.register({
     name: 'agents-info',
     description: 'Show or hide the panel of subagents: running and finished, with model, context, cost and time',
@@ -727,10 +702,6 @@ async function agentesInicio($: EngineInterface, options: { language?: unknown }
       await update($, now, () => at)
     })()
   })
-}
-
-async function agentesMedicao($: EngineInterface, e: any): Promise<void> {
-  if (e.changed.includes('rateLimits')) await medirCambio($).catch(() => {})
 }
 
 async function agentesUso($: EngineInterface, e: any, result: any): Promise<void> {
@@ -885,6 +856,7 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
       return (
         <Box flexDirection="column">
           <Svg source={headerSvg(W, t)} alt={summary} width={W} height={HEADER_H} />
+          {ritmo && <Text dimColor>{ritmoTexto()}</Text>}
           {toggleCompact}
           {isEmpty && <Text dimColor>{s.empty}</Text>}
           {running.length > 0 && section('h-run', `${s.running} · ${running.length}`)}
@@ -944,6 +916,7 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
           </Text>
           {toggleCompact}
         </Box>
+        {ritmo && <Text dimColor>{ritmoTexto()}</Text>}
         {p.isCompact ? (
           <Text wrap="truncate-end">
             {[...running, ...finished].map(a => (
@@ -1024,7 +997,7 @@ const avisou70 = atom({ plugin: 'painel-cezar', key: 'avisou70' }, false)
 
 
 
-// Shows context, 5-hour limit and weekly limit usage in the band above the prompt.
+// Shows context, the rate-limit windows the account reports (only the week on Ultra) and the pace in the band above the prompt.
 
 // The latest figures this session has, from $.session.usage() or session.measure
 let context: SessionContextUsage | null = null
@@ -1103,22 +1076,19 @@ const METER_GAP = 4
 const BAND_RESERVED_COLUMNS = 2
 // Rows between the meters and what later mods draw; the terminal has no rows to spare
 const DESKTOP_ROW_GAP = 0
-const SVG_BAR = { width: 40, height: 4 }
-// Fundo e borda de cada pílula, pelo estado
-const CHIP_BG = 'rgba(255,255,255,0.07)'
-const PILL = {
-  success: { bg: 'rgba(63,182,139,0.12)', border: 'rgba(63,182,139,0.35)' },
-  warning: { bg: 'rgba(217,154,43,0.14)', border: 'rgba(217,154,43,0.40)' },
-  error: { bg: 'rgba(217,83,79,0.14)', border: 'rgba(217,83,79,0.45)' },
-  none: { bg: 'rgba(140,140,150,0.10)', border: 'rgba(140,140,150,0.30)' },
-}
-const SVG_COLORS = {
-  success: ['#3fb68b', '#6fd6a8'],
-  warning: ['#d99a2b', '#f2c25b'],
-  error: ['#d9534f', '#f08a7e'],
-  track: 'rgba(140,140,150,0.18)',
-  marker: 'rgba(160,175,255,0.9)',
-} as const
+// Pílulas do desktop: cada uma um SVG, para a linha quebrar sozinha em janela estreita.
+// Técnica modelada em dois pins: cluster de pílulas sem borda (pin 350577152266479159) e cápsulas
+// com brilho, a célula atual contornada (pin 945967096751896278). Altura de uma linha só.
+const PILULA_ALTURA = 24
+const CELULAS = 14
+const BARRAS_RITMO = 12
+const PILULA_FONTE = "'Segoe UI',system-ui,-apple-system,sans-serif"
+const PILULA_CSS = `<style>
+.fd{fill:#E9E7E1}.tx{fill:#2B2A27}.mu{fill:#6F6C65}.vz{fill:#000;fill-opacity:.11}.success{fill:#2F8F5B}.warning{fill:#B07C1E}.error{fill:#CF4A40}.none{fill:#6F6C65}
+.a-vz{stroke:#000;stroke-opacity:.11}.a-tx{stroke:#2B2A27}.a-mu{stroke:#6F6C65}.a-success{stroke:#2F8F5B}.a-warning{stroke:#B07C1E}.a-error{stroke:#CF4A40}
+@media (prefers-color-scheme: dark){.fd{fill:#2D2C2A}.tx{fill:#ECEAE3}.mu{fill:#8F8C83}.vz{fill:#fff}.success{fill:#8CC29A}.warning{fill:#E3B566}.error{fill:#E8776C}.none{fill:#8F8C83}
+.a-vz{stroke:#fff}.a-tx{stroke:#ECEAE3}.a-mu{stroke:#8F8C83}.a-success{stroke:#8CC29A}.a-warning{stroke:#E3B566}.a-error{stroke:#E8776C}}
+</style>`
 // The terminal draws the time marker in this color
 const MARKER_COLOR = 'cyan'
 
@@ -1241,9 +1211,9 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
 
   on('session.measure', async ($, e, next) => {
     context = e.context
-    await agentesMedicao($, e)
     // A fresh measurement, including an empty one when the account's windows went away
     if (e.changed.includes('rateLimits')) await remember($, e.rateLimits)
+    await atualizarRitmo($).catch(() => {})
     $.ui.invalidate('ui.render')
     return next(e)
   })
@@ -1279,9 +1249,10 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
       meters.push(readLimit(limit, now))
     }
     for (const m of meters) {
-      m.value = valueText(m)
+      m.value = valueText(m, e.surface)
       m.reset = resetText(m, now)
     }
+    const ritmoPill = ritmoMeter(elements, e.surface)
     const cachePill = cacheMeter(elements, e.surface, now)
     const subRodando = (await read($, agents)).some((a) => a.status === 'running')
     const clawdAgora = clawdSvgAgora(subRodando)
@@ -1295,6 +1266,7 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
       rowGap: e.surface !== 'terminal' ? 1 : 0,
       children: [
         ...meters.map((m) => meter(elements, gauge, m)),
+        ...(ritmoPill ? [ritmoPill] : []),
         ...(cachePill ? [cachePill] : []),
         ...(() => {
           const ativos = fundoAtivo(now)
@@ -1410,13 +1382,15 @@ async function scan($: EngineInterface) {
   const entries: Entry[] = []
   let newest: { key: string; reading: Reading } | null = null
   const cutoff = (await $.clock.now()) - STALE_MS
+  const conta = contaDe(rateLimits)
   for (const key of await $.store.keys()) {
     if (!key.startsWith(KEY_PREFIX)) continue
     const reading = await $.store.get(key)
     entries.push({ key, reading })
-    // Só a leitura da própria sessão: o CLI e o desktop podem estar em contas diferentes, e a
-    // leitura de uma sessão de outra conta mostrava o limite errado
-    if (key !== ownKey || !isReading(reading) || reading.at < cutoff) continue
+    if (!isReading(reading) || reading.at < cutoff) continue
+    // Só leitura da mesma conta: o CLI e o desktop podem estar em contas diferentes, e a leitura de
+    // uma sessão de outra conta mostrava o limite errado
+    if (key !== ownKey && (conta == null || contaDe(reading.limits) !== conta)) continue
     if (!newest || reading.at > newest.reading.at || (reading.at === newest.reading.at && key > newest.key)) {
       newest = { key, reading }
     }
@@ -1431,7 +1405,7 @@ function isReading(value: unknown): value is Reading {
   return r != null && typeof r.at === 'number' && Array.isArray(r.limits)
 }
 
-type Meter = { label: string; semRotulo?: boolean; used?: number; elapsed: number | null; resetsAt?: number | null; showsClock?: boolean; value?: string; reset?: string }
+type Meter = { label: string; semRotulo?: boolean; used?: number; elapsed: number | null; resetsAt?: number | null; showsClock?: boolean; value?: string; reset?: string; fecha?: number | null; ehSemana?: boolean }
 function readLimit(limit: SessionRateLimit, now: number): Meter {
   const window = WINDOWS[limit.kind]
   const label = window?.label ?? limit.kind
@@ -1440,8 +1414,14 @@ function readLimit(limit: SessionRateLimit, now: number): Meter {
   if (resetsAtMs != null && resetsAtMs <= now) {
     return { label, semRotulo: window?.semRotulo === true, used: 0, elapsed: window?.ms ? 0 : null, resetsAt: null }
   }
-  const elapsed = window?.ms && resetsAtMs != null ? clamp(100 - ((resetsAtMs - now) / window.ms) * 100) : null
-  return { label, semRotulo: window?.semRotulo === true, used: limit.percentUsed, elapsed, resetsAt: resetsAtMs, showsClock: window?.showsClock === true }
+  let elapsed = window?.ms && resetsAtMs != null ? clamp(100 - ((resetsAtMs - now) / window.ms) * 100) : null
+  // A semana anda em horas úteis, como a meta; a cor sai de onde ela vai fechar
+  const ehSemana = limit.kind === 'seven_day' && resetsAtMs != null
+  if (ehSemana) {
+    const feitas = horasUteis(resetsAtMs - SEMANA_MS, now)
+    elapsed = clamp((feitas / (feitas + horasUteis(now, resetsAtMs))) * 100)
+  }
+  return { label, semRotulo: window?.semRotulo === true, used: limit.percentUsed, elapsed, resetsAt: resetsAtMs, showsClock: window?.showsClock === true, fecha: ehSemana ? ritmo?.fecha : null, ehSemana }
 }
 
 // Green, yellow or red by how far usage runs ahead of the time gone in its window
@@ -1455,8 +1435,10 @@ function statusOf(used: number, elapsed: number | null): Status {
   return 'success'
 }
 
-function valueText({ used }: Meter): string {
-  return typeof used === 'number' ? Math.round(used) + '%' : '—'
+function valueText({ used, fecha }: Meter, surface: string): string {
+  if (typeof used !== 'number') return '—'
+  // No desktop a pílula da semana desenha a previsão à parte, em outra cor
+  return Math.round(used) + '%' + (fecha == null || surface !== 'terminal' ? '' : ' → ' + Math.round(fecha) + '%')
 }
 
 function resetText({ resetsAt, showsClock }: Meter, now: number): string {
@@ -1472,34 +1454,15 @@ function barsFit(meters: Meter[], columns: number): boolean {
   return width + METER_GAP * (meters.length - 1) <= columns - BAND_RESERVED_COLUMNS
 }
 
-function meter({ Box, Text, Svg }: Els, gauge: string, { label, semRotulo, used, elapsed, value, reset }: Meter) {
+function meter(els: Els, gauge: string, { label, semRotulo, used, elapsed, value, reset, fecha, ehSemana }: Meter) {
+  const { Box, Text } = els
   const known = typeof used === 'number'
-  const status = known ? statusOf(used, elapsed) : null
+  const status = known ? (fecha == null ? statusOf(used, elapsed) : statusDoFechamento(fecha)) : null
   const style = known ? { color: status as Status, bold: true } : { dimColor: true }
 
   if (gauge === 'svg') {
-    // Desktop: uma pílula por medidor; o contêiner quebra a linha quando falta espaço
-    const partes = [
-      ...(semRotulo ? [] : [Text({ key: 'l', dimColor: true, wrap: 'truncate', children: [label] })]),
-      Svg({
-        source: svgBar(known ? used : 0, elapsed, status),
-        alt: label + ' ' + value + (reset ? ', ' + reset : ''),
-        width: SVG_BAR.width,
-        height: SVG_BAR.height,
-      }),
-      Text({ key: 'v', ...style, wrap: 'truncate', children: [value as string] }),
-    ]
-    if (reset) partes.push(Text({ key: 'r', dimColor: true, wrap: 'truncate', children: [reset] }))
-    return Box({
-      key: 'meter-' + label,
-      flexDirection: 'row',
-      alignItems: 'center',
-      columnGap: 1,
-      flexShrink: 0,
-      paddingX: 1,
-      backgroundColor: CHIP_BG,
-      children: partes,
-    })
+    const p = ehSemana ? pilulaSemana(known ? used : 0, elapsed, status, fecha, reset ?? '') : pilulaAnel(label, known ? used : 0, status, value as string, reset ?? '')
+    return desenharPilula(els, 'meter-' + label, p)
   }
 
   const children = semRotulo ? [] : [Text({ dimColor: true, children: [label] })]
@@ -1617,26 +1580,77 @@ function clawdSvgAgora(subRodando: boolean) {
   return { source: clawdCache[chave] as string, altura, alt }
 }
 
-function svgBar(used: number, elapsed: number | null, status: Status | null): string {
-  const { width, height } = SVG_BAR
-  const r = height / 2
-  const pct = clamp(used)
-  // Um pouquinho de barra sempre aparece quando há uso, para 1% não sumir
-  const fill = pct > 0 ? Math.max(height, Math.round((pct / 100) * width)) : 0
-  const [c1, c2] = SVG_COLORS[status ?? 'success']
-  const parts = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
-    `<defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>`,
-    `<rect width="${width}" height="${height}" rx="${r}" fill="${SVG_COLORS.track}"/>`,
-  ]
-  if (fill > 0) parts.push(`<rect width="${fill}" height="${height}" rx="${r}" fill="url(#g)"/>`)
-  if (elapsed != null) {
-    // Onde o tempo da janela está: um ponto discreto em vez de risco
-    const x = Math.min(width - r, Math.max(r, Math.round((elapsed / 100) * width)))
-    parts.push(`<circle cx="${x}" cy="${r}" r="${r - 0.5}" fill="none" stroke="${SVG_COLORS.marker}" stroke-width="1"/>`)
+type Pilula = { source: string; width: number; height: number; alt: string }
+
+function pilula(largura: number, miolo: string, alt: string): Pilula {
+  const width = Math.ceil(largura)
+  const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${PILULA_ALTURA}" viewBox="0 0 ${width} ${PILULA_ALTURA}">${PILULA_CSS}<rect class="fd" width="${width}" height="${PILULA_ALTURA}" rx="${PILULA_ALTURA / 2}"/>${miolo}</svg>`
+  return { source, width, height: PILULA_ALTURA, alt }
+}
+
+const textoPilula = (x: number, partes: string) =>
+  `<text x="${x}" y="16" font-family="${PILULA_FONTE}" font-size="11.5" style="font-variant-numeric:tabular-nums">${partes}</text>`
+const trecho = (texto: string, cls: string, dx = 0, peso = 400) =>
+  `<tspan class="${cls}"${dx ? ` dx="${dx}"` : ''}${peso !== 400 ? ` font-weight="${peso}"` : ''}>${xml(texto)}</tspan>`
+
+// Contexto e qualquer janela que não seja a semana: anel, rótulo e número
+function pilulaAnel(label: string, used: number, status: Status | null, value: string, reset: string): Pilula {
+  const r = 5
+  const volta = 2 * Math.PI * r
+  const anel = `<circle cx="16" cy="12" r="${r}" fill="none" class="a-vz" stroke-width="2.4"/><circle cx="16" cy="12" r="${r}" fill="none" class="a-${status === 'success' || !status ? 'tx' : status}" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="${((clamp(used) / 100) * volta).toFixed(1)} ${volta.toFixed(1)}" transform="rotate(-90 16 12)"/>`
+  const largura = 26 + textWidth(label, 11.5) + 5 + textWidth(value, 12) + (reset ? 6 + textWidth(reset, 11.5) : 0) + 11
+  const texto = trecho(label, 'mu') + trecho(value, status && status !== 'success' ? status : 'tx', 5, 600) + (reset ? trecho(reset, 'mu', 6) : '')
+  return pilula(largura, anel + textoPilula(26, texto), [label, value, reset].filter(Boolean).join(' '))
+}
+
+// A semana: cápsulas cheias com brilho, a previsão mais apagada e a célula do tempo contornada
+function pilulaSemana(used: number, elapsed: number | null, status: Status | null, fecha: number | null | undefined, reset: string): Pilula {
+  const passo = 6
+  const cor = status ?? 'none'
+  const cheias = Math.round((clamp(used) / 100) * CELULAS)
+  const previstas = fecha == null ? cheias : Math.round((clamp(fecha) / 100) * CELULAS)
+  const celula = (i: number, cls: string, resto = '') => `<rect class="${cls}" x="${10 + i * passo}" y="6" width="4" height="12" rx="2"${resto}/>`
+  let brilho = ''
+  let celulas = ''
+  for (let i = 0; i < CELULAS; i++) {
+    if (i < cheias) brilho += celula(i, cor)
+    celulas += i < cheias ? celula(i, cor) : i < previstas ? celula(i, cor, ' fill-opacity=".42"') : celula(i, 'vz')
   }
-  parts.push('</svg>')
-  return parts.join('')
+  const marca = elapsed == null ? '' : `<rect class="a-tx" x="${8.5 + Math.min(CELULAS - 1, Math.floor((elapsed / 100) * CELULAS)) * passo}" y="3.5" width="7" height="17" rx="3" fill="none" stroke-opacity=".85"/>`
+  const usado = Math.round(used) + '%'
+  const previsao = fecha == null ? '' : '→ ' + Math.round(fecha) + '%'
+  const x = 10 + CELULAS * passo + 6
+  const largura = x + textWidth(usado, 12) + (previsao ? 5 + textWidth(previsao, 11.5) : 0) + (reset ? 6 + textWidth(reset, 11.5) : 0) + 11
+  const texto = trecho(usado, 'tx', 0, 600) + (previsao ? trecho(previsao, cor, 5) : '') + (reset ? trecho(reset, 'mu', 6) : '')
+  const defs = `<defs><filter id="b" x="-10%" y="-60%" width="120%" height="220%"><feGaussianBlur stdDeviation="1.6"/></filter></defs>`
+  return pilula(largura, `${defs}<g filter="url(#b)" opacity=".5">${brilho}</g>${celulas}${marca}${textoPilula(x, texto)}`, [`semana ${usado}`, previsao, reset].filter(Boolean).join(' '))
+}
+
+// O ritmo: gasto de cada 5 minutos da última hora, a palavra e os números
+function pilulaRitmo(r: Ritmo): Pilula {
+  const maior = Math.max(...r.barras, 0.01)
+  const cor = r.status ?? 'none'
+  const barras = r.barras
+    .map((usd, i) => {
+      const h = usd > 0 ? Math.max(2, (usd / maior) * 12) : 1.5
+      const ultima = i === r.barras.length - 1
+      return `<rect class="${ultima ? cor : 'vz'}" x="${10 + i * 3}" y="${18 - h}" width="2" height="${h.toFixed(1)}" rx="1"${ultima || usd === 0 ? '' : ' style="fill-opacity:.32"'}/>`
+    })
+    .join('')
+  const numeros = r.fala === 'parado' ? 'meta ' + numero(r.meta) + ' %/h' : r.fala === 'esgotou' ? '' : numero(r.agora) + '/' + numero(r.meta) + ' %/h'
+  const x = 10 + BARRAS_RITMO * 3 + 5
+  const largura = x + textWidth(r.fala, 12) + (numeros ? 6 + textWidth(numeros, 11.5) : 0) + 11
+  return pilula(largura, barras + textoPilula(x, trecho(r.fala, cor, 0, 600) + (numeros ? trecho(numeros, 'mu', 6) : '')), `ritmo ${r.fala} ${numeros}`)
+}
+
+function pilulaCache(texto: string, status: Status): Pilula {
+  const relogio = `<circle cx="14" cy="12" r="4.5" fill="none" class="a-mu" stroke-width="1.2"/><path d="M14 9.5v2.5l1.7 1.2" fill="none" class="a-mu" stroke-width="1.2" stroke-linecap="round"/>`
+  return pilula(23 + textWidth(texto, 12) + 11, relogio + textoPilula(23, trecho(texto, status === 'success' ? 'tx' : status, 0, 500)), `cache ${texto}`)
+}
+
+// Toda pílula vai numa caixa com key: é a caixa que entra na linha que quebra
+function desenharPilula({ Box, Svg }: Els, key: string, p: Pilula) {
+  return Box({ key, flexShrink: 0, children: [Svg({ source: p.source, alt: p.alt, width: p.width, height: p.height })] })
 }
 
 function clamp(percent: number): number {
@@ -1658,6 +1672,224 @@ function untilReset(ms: number): string {
   return (minutes % 60) + 'm'
 }
 
+// ---- Ritmo da semana ----
+// O app só dá a semana em ponto inteiro, e 1 ponto leva uns US$ 23,5 de gasto: esperar o ponto subir
+// não mostra o momento. O ritmo vem do gasto em dólar de todas as sessões da conta, convertido pelo
+// câmbio USD_POR_PONTO (medido em 30/10/2026 em cinco trechos, de 23,3 a 24,2, e igual antes e depois
+// de virar Ultra). Cada 4 pontos recalibram o câmbio, que se ajusta sozinho se o plano mudar.
+const GASTO_PREFIX = 'gasto:'
+const MARCOS_PREFIX = 'marcos:'
+const CAMBIO_PREFIX = 'usdPorPonto:'
+const BALDE_MS = 5 * 60_000
+const JANELA_AGORA_MS = 60 * 60_000
+// Cada sessão guarda só estas horas de gasto, e o câmbio só mede dentro delas
+const HORIZONTE_MS = 6 * HOUR_MS
+const PONTOS_POR_MEDIDA = 4
+const PESO_MEDIDA = 0.3
+const SEMANA_MS = 7 * 24 * HOUR_MS
+// Seis semanas de gasto (set–out/2026): 98% fica entre 7h e 23h de Rondônia, e sábado e domingo rendem
+// 40% e 20% de um dia de semana. A meta conta só essas horas, com esse peso; janela de 1h e faixas
+// abaixo simuladas nessa base: troca de faixa só uma vez a cada 2 horas de trabalho.
+const UTIL_INICIO = 7
+const UTIL_FIM = 23
+const PESO_DIA = [0.2, 1, 1, 1, 1, 1, 0.4] // domingo a sábado
+// Abaixo destas horas úteis a média da semana ainda não diz nada
+const MIN_HORAS_PREVISAO = 8
+// Agora ÷ meta: entre as duas faixas é "no ritmo"
+const FAIXA_POUCO = 0.6
+const FAIXA_MUITO = 1.6
+// Fechar a semana abaixo disto é deixar cota sobrando
+const FECHA_BOM = 85
+
+type Gasto = { conta: number; baldes: Record<string, number> }
+type Marco = { at: number; pct: number }
+type Ritmo = { agora: number; usdHora: number; meta: number; horas: number; fecha: number | null; fechaAgora: number; fala: string; status: Status | null; barras: number[] }
+
+let ritmo: Ritmo | null = null
+// O total da sessão na última olhada; null até a primeira, que só marca o ponto de partida
+let ultimoUsd: number | null = null
+let gastoProprio: Gasto | null = null
+let gastoChave: string | null = null
+
+// Horas úteis entre dois instantes
+function horasUteis(de: number, ate: number): number {
+  const DIA = 24 * HOUR_MS
+  let dia = Math.floor((de + JST_OFFSET_MS) / DIA) * DIA - JST_OFFSET_MS
+  let soma = 0
+  for (; dia < ate; dia += DIA) {
+    const a = Math.max(de, dia + UTIL_INICIO * HOUR_MS)
+    const b = Math.min(ate, dia + UTIL_FIM * HOUR_MS)
+    if (b > a) soma += (b - a) * (PESO_DIA[new Date(dia + JST_OFFSET_MS).getUTCDay()] ?? 1)
+  }
+  return soma / HOUR_MS
+}
+
+// O engine não informa a conta, mas cada uma vira a semana num horário próprio: esse horário,
+// reduzido à semana, é o mesmo toda semana e separa as contas
+function contaDe(limits: SessionRateLimit[]): number | null {
+  const semana = limits.find((l) => l.kind === 'seven_day')
+  if (!semana?.resetsAt) return null
+  return Math.round(Date.parse(semana.resetsAt) / 60_000) % (SEMANA_MS / 60_000)
+}
+
+function calcularRitmo(used: number, resetsAt: number, agoraMs: number, usdJanela: number, janelaMs: number, usdPonto: number, barras: number[]): Ritmo {
+  const horas = horasUteis(agoraMs, resetsAt)
+  const feitas = horasUteis(resetsAt - SEMANA_MS, agoraMs)
+  const usdHora = usdJanela / (janelaMs / HOUR_MS)
+  const agora = usdHora / usdPonto
+  const resta = Math.max(0, 100 - used)
+  const meta = resta / Math.max(horas, 0.5)
+  const fecha = feitas >= MIN_HORAS_PREVISAO ? used + (used / feitas) * horas : null
+  const fechaAgora = used + agora * horas
+  const base = { agora, usdHora, meta, horas, fecha, fechaAgora, barras }
+  if (resta === 0) return { ...base, fala: 'esgotou', status: 'error' }
+  if (usdJanela === 0) return { ...base, fala: 'parado', status: null }
+  const vezes = agora / meta
+  if (vezes < FAIXA_POUCO) return { ...base, fala: 'pouco', status: 'warning' }
+  if (vezes > FAIXA_MUITO) return { ...base, fala: 'muito', status: 'error' }
+  return { ...base, fala: 'no ritmo', status: 'success' }
+}
+
+function statusDoFechamento(fecha: number): Status {
+  return fecha > 100 ? 'error' : fecha >= FECHA_BOM ? 'success' : 'warning'
+}
+
+function somaBaldes(gastos: Gasto[], de: number, ate: number): number {
+  let soma = 0
+  for (const { baldes } of gastos) {
+    for (const [balde, usd] of Object.entries(baldes)) {
+      const t = Number(balde) * BALDE_MS
+      if (t >= de && t <= ate) soma += usd
+    }
+  }
+  return soma
+}
+
+// Soma ao balde desta sessão o que ela gastou desde a última olhada, subagentes inclusive
+async function anotarGasto($: EngineInterface, conta: number | null, agoraMs: number) {
+  const usd = (await $.session.usage()).cost?.usd
+  if (typeof usd !== 'number') return
+  if (ultimoUsd == null) ultimoUsd = usd
+  if (conta == null || !ownKey) return
+  const delta = usd >= ultimoUsd ? usd - ultimoUsd : usd
+  ultimoUsd = usd
+  if (delta <= 0) return
+  const chave = GASTO_PREFIX + ownKey.slice(KEY_PREFIX.length)
+  if (chave !== gastoChave) {
+    gastoChave = chave
+    gastoProprio = ((await $.store.get(chave)) as Gasto | undefined) ?? null
+  }
+  const corte = Math.floor((agoraMs - HORIZONTE_MS) / BALDE_MS)
+  const baldes = Object.fromEntries(Object.entries(gastoProprio?.baldes ?? {}).filter(([b]) => Number(b) >= corte))
+  const balde = String(Math.floor(agoraMs / BALDE_MS))
+  baldes[balde] = (baldes[balde] ?? 0) + delta
+  gastoProprio = { conta, baldes }
+  await $.store.set(chave, gastoProprio)
+}
+
+// O gasto recente de todas as sessões da conta; apaga o de sessão parada há mais que o horizonte
+async function lerGastos($: EngineInterface, conta: number, agoraMs: number): Promise<Gasto[]> {
+  const corte = (agoraMs - HORIZONTE_MS) / BALDE_MS
+  const gastos: Gasto[] = []
+  for (const key of await $.store.keys()) {
+    if (!key.startsWith(GASTO_PREFIX)) continue
+    const g = (await $.store.get(key)) as Gasto | undefined
+    if (!g?.baldes || Object.keys(g.baldes).every((b) => Number(b) < corte)) await $.store.delete(key)
+    else if (g.conta === conta) gastos.push(g)
+  }
+  return gastos
+}
+
+// Anota o instante em que o ponto da semana mudou e, a cada 4 pontos, recalibra o câmbio. Entre dois
+// pontos virando, a conta é exata: o arredondamento só atrapalha no primeiro marco.
+async function marcarPonto($: EngineInterface, pct: number, conta: number, agoraMs: number, gastos: Gasto[]) {
+  const chave = MARCOS_PREFIX + conta
+  let marcos = (((await $.store.get(chave)) as Marco[] | undefined) ?? []).filter((m) => m.at >= agoraMs - HORIZONTE_MS)
+  const ultimo = marcos.at(-1)
+  if (ultimo?.pct === pct) return
+  // Queda de 1 ou 2 é leitura atrasada de outra sessão; queda maior é a semana zerando
+  if (ultimo && pct < ultimo.pct) {
+    if (ultimo.pct - pct < 3) return
+    marcos = []
+  }
+  const base = marcos.find((m) => pct - m.pct >= PONTOS_POR_MEDIDA)
+  if (base) {
+    const usd = somaBaldes(gastos, base.at, agoraMs)
+    if (usd > 0) {
+      const medido = usd / (pct - base.pct)
+      const novo = usdPorPonto * (1 - PESO_MEDIDA) + medido * PESO_MEDIDA
+      usdPorPonto = Math.min(USD_POR_PONTO * 3, Math.max(USD_POR_PONTO / 3, novo))
+      await $.store.set(CAMBIO_PREFIX + conta, usdPorPonto)
+    }
+    marcos = []
+  }
+  await $.store.set(chave, [...marcos, { at: agoraMs, pct }])
+}
+
+async function atualizarRitmo($: EngineInterface) {
+  const agoraMs = await $.clock.now()
+  const conta = contaDe(rateLimits)
+  await anotarGasto($, conta, agoraMs)
+  const semana = rateLimits.find((l) => l.kind === 'seven_day')
+  const resetsAt = semana?.resetsAt ? Date.parse(semana.resetsAt) : 0
+  if (!semana || conta == null || resetsAt <= agoraMs) {
+    ritmo = null
+    return
+  }
+  usdPorPonto = ((await $.store.get(CAMBIO_PREFIX + conta)) as number | undefined) ?? USD_POR_PONTO
+  const gastos = await lerGastos($, conta, agoraMs)
+  await marcarPonto($, semana.percentUsed, conta, agoraMs, gastos)
+  const desde = Math.floor((agoraMs - JANELA_AGORA_MS) / BALDE_MS) * BALDE_MS
+  const baldeAtual = Math.floor(agoraMs / BALDE_MS)
+  const barras = Array.from({ length: BARRAS_RITMO }, (_, i) => {
+    const t = (baldeAtual - BARRAS_RITMO + 1 + i) * BALDE_MS
+    return somaBaldes(gastos, t, t)
+  })
+  ritmo = calcularRitmo(semana.percentUsed, resetsAt, agoraMs, somaBaldes(gastos, desde, agoraMs), agoraMs - desde, usdPorPonto, barras)
+}
+
+// Tira o que as versões antigas deixaram na loja, aos poucos: cada sessão que abre limpa um lote
+async function faxinaLoja($: EngineInterface) {
+  const corte = (await $.clock.now()) - 2 * 24 * HOUR_MS
+  let apagadas = 0
+  for (const key of await $.store.keys()) {
+    if (apagadas >= 60) break
+    const velha = key.startsWith('cambio:') || (key.startsWith('cache:') && Number(await $.store.get(key)) < corte)
+    if (!velha) continue
+    await $.store.delete(key)
+    apagadas++
+  }
+}
+
+function numero(n: number): string {
+  return (n >= 10 ? String(Math.round(n)) : n.toFixed(1)).replace('.', ',')
+}
+
+function ritmoMeter(els: Els, surface: string) {
+  if (!ritmo) return null
+  if (surface !== 'terminal') return desenharPilula(els, 'meter-ritmo', pilulaRitmo(ritmo))
+  const { Box, Text } = els
+  const { fala, status, agora, meta } = ritmo
+  const numeros = fala === 'parado' || fala === 'esgotou' ? (fala === 'parado' ? 'meta ' + numero(meta) + '%/h' : '') : numero(agora) + ' de ' + numero(meta) + '%/h'
+  const estilo = status ? { color: status, bold: true } : { dimColor: true }
+  return Box({
+    key: 'ritmo',
+    flexDirection: 'row',
+    columnGap: 1,
+    children: [Text({ dimColor: true, children: ['⚡'] }), Text({ ...estilo, children: [fala] }), Text({ dimColor: true, children: [numeros] })],
+  })
+}
+
+// A conta inteira do ritmo, no topo do painel de agentes
+function ritmoTexto(): string {
+  if (!ritmo) return ''
+  const { agora, usdHora, meta, horas, fecha, fechaAgora } = ritmo
+  return [
+    `Agora ${numero(agora)}%/h (US$ ${Math.round(usdHora)}/h, todas as sessões) · meta ${numero(meta)}%/h nas ${numero(horas)}h úteis que faltam`,
+    `Nesta hora fecha a semana em ${Math.round(fechaAgora)}%${fecha == null ? '' : `, na média da semana em ${Math.round(fecha)}%`} · 1 ponto ≈ US$ ${numero(usdPorPonto)}`,
+  ].join('\n')
+}
+
 // Uma chamada que regravou quase tudo em vez de ler: diz o porquê. Prompt que encolheu (compactar, /clear) não conta.
 function porQueEsfriou(antes: Chamada | null, agora: Chamada): string | null {
   if (!antes) return null
@@ -1675,11 +1907,12 @@ function milhares(n: number): string {
 }
 
 // Pílula do cache: quente (barato), esfriando, ou frio (a próxima mensagem relê tudo a preço cheio)
-function cacheMeter({ Box, Text }: Els, surface: string, now: number) {
+function cacheMeter(els: Els, surface: string, now: number) {
   if (!ultimaResposta) return null
+  const { Text } = els
   const resta = ultimaResposta + cacheMs() - now
   const min = Math.max(0, Math.ceil(resta / 60_000))
-  let status, texto
+  let status: Status, texto
   if (resta <= 0) {
     status = 'error'
     texto = 'frio'
@@ -1690,21 +1923,8 @@ function cacheMeter({ Box, Text }: Els, surface: string, now: number) {
     status = 'success'
     texto = min + 'm'
   }
-  const color = status
-  if (surface === 'terminal') return Text({ key: 'cache', color, children: ['⏱ ' + texto] })
-  return Box({
-    key: 'meter-cache',
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexShrink: 0,
-    paddingX: 1,
-    columnGap: 1,
-    backgroundColor: CHIP_BG,
-    children: [
-      Text({ key: 'l', dimColor: true, children: ['⏱'] }),
-      Text({ key: 'v', color, bold: true, wrap: 'truncate', children: [texto] }),
-    ],
-  })
+  if (surface === 'terminal') return Text({ key: 'cache', color: status, children: ['⏱ ' + texto] })
+  return desenharPilula(els, 'meter-cache', pilulaCache(texto, status))
 }
 
 // Chamado pelo session.start do register.tsx (um evento só pode ter um hook sem filtro por plugin)
@@ -1713,6 +1933,9 @@ async function inicio($: EngineInterface) {
   fundo = []
   rateLimits = []
   measuredAt = 0
+  ritmo = null
+  ultimoUsd = null
+  gastoChave = null
   ownKey = KEY_PREFIX + (await $.session.id())
   // A hora da última resposta fica guardada por sessão: reiniciar o app não esquenta o cache.
   ultimaResposta = ((await $.store.get('cache:' + (await $.session.id()))) as number | undefined) ?? 0
@@ -1721,8 +1944,11 @@ async function inicio($: EngineInterface) {
   if (usage.rateLimits.length > 0) await publishSnapshot($, usage.rateLimits)
   // Also clears keys ended sessions left, which short runs that never tick would not
   await refresh($)
+  await atualizarRitmo($).catch(() => {})
+  await faxinaLoja($).catch(() => {})
   ticker = $.clock.every(TICK_MS, async () => {
     await refresh($)
+    await atualizarRitmo($).catch(() => {})
     $.ui.invalidate('ui.render')
   })
   $.ui.invalidate('ui.render')

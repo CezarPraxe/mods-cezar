@@ -1,12 +1,21 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 15/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.15.0**) · público em github.com/CezarPraxe/mods-cezar
+Atualizado: 30/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.16.0**) · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
-- **Faixa acima do prompt** (desktop/terminal; o celular não tem): `ctx` · barra do 5h · barra da semana · `⏱ 42m` (cache) · **Clawd** · **📦** (só compacta) · **💾**.
-  - 5h e semana sem rótulo: a ordem e o horário identificam (5h em hora do dia, semana em dias).
-  - A bolinha nas barras marca o tempo da janela que já passou; a barra é o uso. Barra antes da bolinha = folga.
+- **Faixa acima do prompt** (desktop/terminal; o celular não tem): `ctx` · semana · `⚡ ritmo` · `⏱ 42m` (cache) · **Clawd** · **📦** (só compacta) · **💾**.
+  - **Desenho (0.16.0):** no desktop cada medidor é uma pílula SVG de 24 px, uma linha só (`pilulaAnel`, `pilulaSemana`, `pilulaRitmo`, `pilulaCache`), em Box próprio para a linha quebrar. Modelado em dois pins: cluster de pílulas sem borda (350577152266479159) e cápsulas com brilho, a célula atual contornada (945967096751896278). O Cezar escolheu essa entre 3 e pediu menor: a versão de duas linhas (32 px) foi recusada. O terminal segue em texto.
+  - A semana: 14 cápsulas (cheio = uso, mais apagado = previsão, contorno = onde o tempo está), `48%`, `→ 49%` e hora da virada. Cor pela previsão: amarelo abaixo de 85% (sobra cota), verde de 85% a 100%, vermelho acima de 100%.
+  - Janela de 5h: só aparece se a conta informar. No Ultra não existe mais; a outra conta ainda manda.
+- **Ritmo da semana (0.16.0, seção com esse nome no register.tsx):** o app dá a semana em ponto inteiro, e 1 ponto ≈ US$ 23,5 (medido em 30/10 em cinco trechos, 23,3 a 24,2, igual antes e depois de virar Ultra), então esperar o ponto subir não mostra o momento.
+  - Cada sessão soma o próprio gasto (subagentes inclusive) em baldes de 5 min na loja (`gasto:<sessão>`, últimas 6h). O ritmo é a soma de todas as sessões da conta na última hora, convertida pelo câmbio. As barrinhas da pílula são esses baldes.
+  - **Meta** = pontos que faltam ÷ horas úteis que faltam. Horas úteis: 7h às 23h de Rondônia, sábado pesa 0,4 e domingo 0,2 (seis semanas de gasto real). Abaixo de 0,6× = pouco, acima de 1,6× = muito. Simulado na base real: janela de 1h muda de faixa uma vez a cada 2 horas de trabalho; janela de 30 min agita mais.
+  - **Previsão** = uso + média por hora útil × horas úteis restantes. Só depois de 8 horas úteis na semana.
+  - **Câmbio se recalibra:** `marcos:<conta>` guarda quando o ponto virou; a cada 4 pontos mede dólar por ponto e mistura 30% no valor salvo (`usdPorPonto:<conta>`), limitado a 1/3 e 3× do inicial. Queda de 3+ pontos = semana zerou (aconteceu em 28/10: 49% → 11% sem mudar a data de virada); queda de 1 ou 2 = leitura atrasada, ignora.
+  - **Conta = horário da virada reduzido à semana** (`contaDe`): o engine não informa a conta, mas cada uma vira num horário próprio. Com isso as sessões voltaram a compartilhar leitura sem misturar contas (ver 0.13.3). A conta de trabalho é a que vira sábado 11h de Rondônia.
+  - O painel de agentes mostra a conta inteira no topo e o custo em `% sem`. O câmbio antigo por sessão foi retirado: dividia o aumento da conta inteira pelo gasto de uma sessão só, errado com sessões em paralelo. A loja se limpa sozinha (`faxinaLoja`).
+  - **Ao atualizar uma sessão aberta na versão antiga:** ela não anota gasto até reiniciar, então nas primeiras horas o ritmo sai menor que o real.
 - **Clawd** (só no desktop; no terminal é o botão `sub`): clique abre o painel de agentes (`$.ui.open({ id: 'agentes-cezar' })`). Três estados:
   - **trabalhando** (`turn.start` da conversa principal **ou qualquer subagente rodando**, lido de `ag_agents`): o mesmo Clawd andando do painel de agentes, animado por CSS dentro do SVG, sem redesenhar a faixa;
   - **vez** (`turn.complete`): parado, pisca de vez em quando;

@@ -1,17 +1,25 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 15/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.15.0**) · público em github.com/CezarPraxe/mods-cezar
+Atualizado: 31/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.17.0**) · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
-- **Faixa acima do prompt** (desktop/terminal; o celular não tem): `ctx` · barra do 5h · barra da semana · `⏱ 42m` (cache) · **Clawd** · **📦** (só compacta) · **💾**.
-  - 5h e semana sem rótulo: a ordem e o horário identificam (5h em hora do dia, semana em dias).
-  - A bolinha nas barras marca o tempo da janela que já passou; a barra é o uso. Barra antes da bolinha = folga.
-- **Clawd** (só no desktop; no terminal é o botão `sub`): clique abre o painel de agentes (`$.ui.open({ id: 'agentes-cezar' })`). Três estados:
-  - **trabalhando** (`turn.start` da conversa principal **ou qualquer subagente rodando**, lido de `ag_agents`): o mesmo Clawd andando do painel de agentes, animado por CSS dentro do SVG, sem redesenhar a faixa;
-  - **vez** (`turn.complete`): parado, pisca de vez em quando;
-  - **pânico** (`tool.check` = ask, ou `tool.call` de AskUserQuestion/ExitPlanMode, até a ferramenta terminar): vermelho, olho arregalado, treme e ergue um "!" amarelo. O SVG cresce para 28 px de altura nessa hora.
-- **💾**: manda o prompt do ESTADO.md (aviso na hora, segundo clique ignorado) e compacta sozinho quando o turno acaba. Depois relê o ctx 5 vezes, de 2 em 2 s.
+- **Faixa acima do prompt** (desktop/terminal; o celular não tem): `ctx` · semana · `⏱ 42m` (cache) · **Clawd** · **compactar** · **salvar**.
+  - **Desenho (0.17.0):** no desktop cada medidor é uma pílula SVG de 24 px, uma linha só (`pilulaAnel`, `pilulaSemana`, `pilulaCache`), em Box próprio para a linha quebrar. Modelado em dois pins: cluster de pílulas sem borda (350577152266479159) e cápsulas com brilho, a célula atual contornada (945967096751896278). A versão de duas linhas (32 px) foi recusada. O terminal segue em texto. Arte e provas em `C:\Users\Cezar\praxedes\rascunho\painel-previa\`.
+  - **A semana:** 14 cápsulas (cheio = uso), contorno branco = onde o tempo está, `54%` e a hora da virada. Cor pela previsão de fechamento, sem mostrar o número: amarelo abaixo de 85% (sobra cota), verde de 85% a 100%, vermelho acima de 100%.
+  - **Onda (`ondaSemana`, `montarOnda`):** luz que nasce na primeira cápsula, caminha a 9 px/s e 24 fps, freia na última cheia, com rastro que apaga em 3 a 4 s. Só gradiente e opacidade, sem filtro animado. A fase vem do relógio do PC, para não voltar ao começo quando o texto muda.
+  - Janela de 5h: só aparece se a conta informar. No Ultra não existe mais; a outra conta ainda manda.
+- **Semana (seção com esse nome no register.tsx):** contorno e cor andam em horas úteis: 7h às 23h de Rondônia, sábado pesa 0,4 e domingo 0,2 (seis semanas de gasto real). Previsão = uso + média por hora útil × horas úteis restantes, só depois de 8 horas úteis.
+  - **Reprovados, não voltar sem ele pedir:** o `→ 55%` ao lado do uso ("achei desnecessário": só anda junto com o uso), a pílula `pouco / no ritmo / muito` com barrinhas e `%/h` ("números sem nexo"; o contorno branco já diz isso) e as frases de ritmo no painel de agentes.
+  - **Câmbio do custo dos agentes (`% sem`):** 1 ponto ≈ US$ 23,5, medido em 30/10 em cinco trechos (23,3 a 24,2, igual antes e depois de virar Ultra). Cada sessão soma o próprio gasto em baldes de 5 min (`gasto:<sessão>`, últimas 6h). `marcos:<conta>` guarda quando o ponto virou; a cada 4 pontos mede dólar por ponto e mistura 30% no valor salvo (`usdPorPonto:<conta>`), limitado a 1/3 e 3× do inicial. Queda de 3+ pontos = semana zerou (aconteceu em 28/10: 49% → 11% sem mudar a data de virada); queda de 1 ou 2 = leitura atrasada, ignora.
+  - **Conta = horário da virada reduzido à semana** (`contaDe`): o engine não informa a conta, mas cada uma vira num horário próprio. Com isso as sessões voltaram a compartilhar leitura sem misturar contas (ver 0.13.3). A conta de trabalho é a que vira sábado 11h de Rondônia.
+  - O câmbio antigo por sessão foi retirado: dividia o aumento da conta inteira pelo gasto de uma sessão só, errado com sessões em paralelo. A loja se limpa sozinha (`faxinaLoja`).
+- **Clawd** (só no desktop; no terminal é o botão `sub`): arte refeita em 31/10 em cima da grade oficial do ClawdMoji, **sem garra** (com garra foi reprovado). Três SVGs em `register.tsx` (`CLAWD_VEZ`, `CLAWD_TRABALHANDO`, `CLAWD_PANICO`), 28×24, animados só por CSS dentro do próprio SVG. Clique abre o painel de agentes.
+  - **vez** (`turn.complete`): parado, respira, olha de lado e pisca;
+  - **trabalhando** (`turn.start` da conversa principal **ou qualquer subagente rodando**, lido de `ag_agents`): anda;
+  - **pânico** (`tool.check` = ask, ou `tool.call` de AskUserQuestion/ExitPlanMode, até a ferramenta terminar): vermelho, treme e ergue um "!".
+- **Botões do desktop:** Prensa (`ICONE_COMPACTAR`) e disquete com check (`ICONE_SALVAR`), desenhados por `iconeClicavel`: SVG com um `Client` invisível por cima, porque botão do app só aceita texto. O clique chega ao hook `ui.message` pelo key. No terminal seguem como 📦 e 💾.
+- **Salvar**: manda o prompt do ESTADO.md (aviso na hora, segundo clique ignorado) e compacta sozinho quando o turno acaba. Depois relê o ctx 5 vezes, de 2 em 2 s.
 - **⏱ cache**: conta do **início** de cada chamada da conversa principal (`turn.step`), guardado no `$.store` (`cache:<sessionId>`), então reiniciar o app não esquenta. Dura 1 h, ou 5 min se a 5h ou a semana chegar a 100% (uso extra). Toast "⏱ Cache frio (motivo): regravou Nk tokens" quando uma chamada ≥ 20k regrava em vez de ler. Motivos: trocou o modelo, passou do tempo, ou mudou esforço/ferramentas/CLAUDE.md. Compactação não avisa.
 - **Hora de Rondônia em toda mensagem:** o `prompt.submit` anexa ao contexto (o modelo lê, o Cezar não vê) "Agora em Rondônia (UTC−4): dia da semana, dd/mm/aaaa, hh:mm". Motivo: SDR e Estagiário mandavam "bom dia" de tarde, e a regra no AGENTS.md não resolvia porque o modelo não tem relógio.
 - **⚙ N** (0.15.0): aparece na faixa quando há comando, monitor, workflow ou agendamento rodando em segundo plano; clique lista o que é. Anota no `tool.call` (run_in_background, Monitor, Workflow, CronCreate, ScheduleWakeup) e tira quando chega o `<task-notification>` com status final (`session.append`), no TaskStop/CronDelete ou no fim do prazo do ScheduleWakeup. Subagente não conta: ele já faz o Clawd andar. O engine não dá lista de tarefas ao mod (o `background_tasks` é só dos hooks de settings).

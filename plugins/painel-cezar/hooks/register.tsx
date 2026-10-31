@@ -2,18 +2,17 @@
 // Texto da licença: LICENSE-savvy-progress, na raiz do repositório mods-cezar.
 // Parte do módulo register.tsx: o plugin tem um só módulo de hooks.
 import { atom, read, update } from 'claude-code'
-import type { ElementTable, EngineInterface, PluginOptions, Register, SessionContextUsage, SessionRateLimit, Timer } from 'claude-code'
-import type { AgentRun, Panel } from '../types'
+import type { ElementTable, EngineInterface, PluginOptions, Register, SessionContextUsage, SessionMessage, SessionRateLimit, Timer } from 'claude-code'
+import type { AgentRun, AgentStatus, Panel } from '../types'
 
 // Estado do painel de agentes. Prefixo ag_ para não colidir com os valores da faixa, mais abaixo no arquivo.
 const agents = atom({ plugin: 'painel-cezar', key: 'ag_agents' } as const, [])
-const panel = atom({ plugin: 'painel-cezar', key: 'ag_panel' } as const, {
-  isCompact: false,
-  isDoneCollapsed: false,
-})
+const panel = atom({ plugin: 'painel-cezar', key: 'ag_panel' } as const, {} as Panel)
 const now = atom({ plugin: 'painel-cezar', key: 'ag_now' } as const, 0)
 
 const PANE = 'agentes-cezar'
+// Prefixo da área invisível de cada linha: `agente:<id>`
+const AREA_AGENTE = 'agente:'
 // ---------------------------------------------------------------------------
 // Language: the `language` option, else Claude Code's `language` setting, else the
 // process locale; English when nothing says Russian.
@@ -23,87 +22,75 @@ type Lang = 'en' | 'ru' | 'pt'
 const STRINGS = {
   en: {
     pane: 'Agents',
-    cost: 'Cost',
-    tokens: 'Tokens',
-    time: 'Time',
     collapse: 'Collapse',
     expand: 'Expand',
-    running: 'Running',
-    finished: 'Finished',
-    planned: 'Planned',
-    empty: 'No subagents yet.',
-    round: 'round',
-    failed: 'error',
-    after: 'after',
-    tokensWord: 'tokens',
-    agentsCount: 'agents',
-    isRunning: 'running',
-    isFinished: 'finished',
-    isPlanned: 'planned',
+    empty: 'Nobody working right now',
+    working: 'working',
+    workingFor: 'working for',
+    finishedWord: (n: number) => (n === 1 ? 'finished' : 'finished'),
+    doneWord: 'finished',
+    stopped: 'interrupted',
+    failedAgo: (t: string) => `failed ${t === 'now' ? 'just now' : t + ' ago'}`,
+    quiet: (t: string) => `nothing new for ${t}`,
+    retry: (n: number) => `attempt ${n}`,
+    justNow: 'now',
+    costAbout: (p: string) => `about ${p}% of the week`,
+    costUnder: 'under 0.1% of the week',
+    openChat: 'Open conversation',
+    asked: 'Asked',
+    noMessages: 'No messages yet.',
+    noConversation: 'This conversation cannot be read.',
+    omitted: (n: number) => `${n} earlier entries hidden`,
     opened: 'Agents panel opened.',
     closed: 'Agents panel closed.',
-    done: 'Done',
-    plan: 'Plan',
-    design: 'Design',
-    tasks: 'Tasks',
-    review: 'Review',
-    busy: 'running',
   },
   ru: {
     pane: 'Агенты',
-    cost: 'Стоимость',
-    tokens: 'Токены',
-    time: 'Время',
     collapse: 'Свернуть',
     expand: 'Развернуть',
-    running: 'Работают',
-    finished: 'Завершены',
-    planned: 'Запланированы',
-    empty: 'Субагентов пока нет.',
-    round: 'раунд',
-    failed: 'ошибка',
-    after: 'после',
-    tokensWord: 'токенов',
-    agentsCount: 'агентов',
-    isRunning: 'работает',
-    isFinished: 'завершён',
-    isPlanned: 'запланирована',
+    empty: 'Сейчас никто не работает',
+    working: 'в работе',
+    workingFor: 'в работе',
+    finishedWord: (_n: number) => 'завершено',
+    doneWord: 'завершён',
+    stopped: 'прерван',
+    failedAgo: (t: string) => `ошибка ${t === 'сейчас' ? 'только что' : t + ' назад'}`,
+    quiet: (t: string) => `без новостей ${t}`,
+    retry: (n: number) => `попытка ${n}`,
+    justNow: 'сейчас',
+    costAbout: (p: string) => `около ${p}% недели`,
+    costUnder: 'меньше 0,1% недели',
+    openChat: 'Открыть диалог',
+    asked: 'Задание',
+    noMessages: 'Сообщений пока нет.',
+    noConversation: 'Этот диалог нельзя прочитать.',
+    omitted: (n: number) => `скрыто записей: ${n}`,
     opened: 'Панель агентов открыта.',
     closed: 'Панель агентов закрыта.',
-    done: 'Готово',
-    plan: 'План',
-    design: 'Дизайн',
-    tasks: 'Задачи',
-    review: 'Ревью',
-    busy: 'в работе',
   },
   pt: {
     pane: 'Agentes',
-    cost: 'Custo',
-    tokens: 'Tokens',
-    time: 'Tempo',
     collapse: 'Recolher',
     expand: 'Expandir',
-    running: 'Rodando',
-    finished: 'Concluído',
-    planned: 'Planejado',
-    empty: 'Nenhum subagente ainda.',
-    round: 'rodada',
-    failed: 'erro',
-    after: 'após',
-    tokensWord: 'tokens',
-    agentsCount: 'agentes',
-    isRunning: 'rodando',
-    isFinished: 'concluído',
-    isPlanned: 'planejado',
+    empty: 'Ninguém trabalhando agora',
+    working: 'trabalhando',
+    workingFor: 'trabalhando há',
+    finishedWord: (n: number) => (n === 1 ? 'concluído' : 'concluídos'),
+    doneWord: 'concluído',
+    stopped: 'interrompido',
+    failedAgo: (t: string) => `parou com erro ${t === 'agora' ? 'agora' : 'há ' + t}`,
+    quiet: (t: string) => `sem novidade há ${t}`,
+    retry: (n: number) => `${n}ª tentativa`,
+    justNow: 'agora',
+    costAbout: (p: string) => `cerca de ${p}% da semana`,
+    costUnder: 'menos de 0,1% da semana',
+    openChat: 'Abrir conversa',
+    asked: 'Pedido',
+    noMessages: 'Ainda sem mensagens.',
+    noConversation: 'Esta conversa não pode ser lida.',
+    omitted: (n: number) => `${n} registros anteriores ocultos`,
     opened: 'Painel de agentes aberto.',
     closed: 'Painel de agentes fechado.',
-    done: 'Concluído',
-    plan: 'Plano',
-    design: 'Design',
-    tasks: 'Tarefas',
-    review: 'Revisão',
-    busy: 'rodando',
   },
 } as const
 
@@ -131,52 +118,17 @@ async function detectLang($: EngineInterface, option: unknown): Promise<Lang> {
   return 'pt'
 }
 
-const FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif"
-
 const xml = (s: string): string =>
   s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
 
 
-// Rough advance of system UI text, in em; good enough to size the title's slot.
+// Largura aproximada de texto de interface, em em; basta para dimensionar a pílula.
 const charEm = (ch: string): number =>
   /[\s.,:;'|!il1()[\]]/.test(ch) ? 0.3 : /[A-ZА-ЯЁmwшщжюМШЩЖЮ@%]/.test(ch) ? 0.72 : 0.56
 
-const textWidth = (s: string, size: number): number => [...s].reduce((w, ch) => w + charEm(ch) * size, 0)
-
-// Cuts `s` to fit `maxW` pixels, with an ellipsis when it had to cut.
-const fitText = (s: string, size: number, maxW: number): string => {
-  if (textWidth(s, size) <= maxW) return s
-  let out = ''
-  for (const ch of s) {
-    if (textWidth(out + ch + '…', size) > maxW) break
-    out += ch
-  }
-  return out + '…'
-}
 // ---------------------------------------------------------------------------
-// Agents panel: every subagent of the session.
-
-const TIER_COLOR: Record<string, string> = {
-  fable: '#7F77DD',
-  heavy: '#D85A30',
-  careful: '#BA7517',
-  medium: '#378ADD',
-  light: '#1D9E75',
-  advogado: '#3B5B92',
-  executor: '#BA7517',
-  contador: '#2E8B57',
-  pesquisador: '#8A6D3B',
-  revisor: '#C0392B',
-  redator: '#4A4E57',
-  cobranca: '#2E7D32',
-  atendente: '#25D366',
-  obra: '#BA7517',
-  pintor: '#7E57C2',
-  cientista: '#00897B',
-  other: '#888780',
-}
-
-const colorOf = (tier: string): string => TIER_COLOR[tier] ?? '#888780'
+// Painel de agentes (desenho A, Fila, aprovado em 31/10/2026): erro no topo, quem trabalha do mais antigo
+// ao mais novo, concluídos numa linha só. Três cores: barro = rodando, verde = concluído, vermelho = erro.
 
 // USD por milhão de tokens: entrada, saída, leitura de cache, gravação de cache (5 min).
 // Conferido em 10/10/2026 em https://platform.claude.com/docs/en/about-claude/pricing
@@ -216,460 +168,319 @@ const costOf = (model: string, u: Usage): number => {
   )
 }
 
-// Janela: 1M em todos os modelos atuais; 200k só no Haiku 4.x (conferido em 10/10/2026, models overview).
-const windowOf = (model: string): number => (/haiku-4/i.test(model) ? 200_000 : 1_000_000)
+// Função do agente: uma fantasia por função (a primeira regra que bate vence)
+const FUNCOES: [RegExp, string][] = [
+  [/^(relatorio-fatura|advogado-cliente-faturas)/i, 'contador'],
+  [/^pesquisador-/i, 'pesquisador'],
+  [/^(revisor-|advogado-cliente-conferente)/i, 'revisor'],
+  [/^advogado-cliente-ms-redator/i, 'redator'],
+  [/^advogado-cliente-cobranca/i, 'cobranca'],
+  [/^advogado-cliente-contato-whatsapp/i, 'atendente'],
+  [/^advogado-/i, 'advogado'],
+  [/^obra-longa-/i, 'obra'],
+  [/^executor-/i, 'executor'],
+  [/^animador-/i, 'pintor'],
+  [/^excecao-/i, 'cientista'],
+]
 
-// `savvy-careful`, or `savvy-flow:savvy-careful` when the agents ship in a plugin.
-const bareSavvy = (type: string): boolean => type.replace(/^[^:]*:/, '').startsWith('savvy-')
-
-const tierOf = (type: string): string => {
+const funcaoDe = (type: string): string => {
+  if (type === 'Explore') return 'explore'
   const bare = type.replace(/^[^:]*:/, '')
-  const t = bare.replace(/^savvy-/, '').toLowerCase()
-  // Agentes da casa: uma fantasia por função (a primeira regra que bate vence)
-  const casa: [RegExp, string][] = [
-    [/^(relatorio-fatura|advogado-cliente-faturas)/i, 'contador'],
-    [/^pesquisador-/i, 'pesquisador'],
-    [/^(revisor-|advogado-cliente-conferente)/i, 'revisor'],
-    [/^advogado-cliente-ms-redator/i, 'redator'],
-    [/^advogado-cliente-cobranca/i, 'cobranca'],
-    [/^advogado-cliente-contato-whatsapp/i, 'atendente'],
-    [/^advogado-/i, 'advogado'],
-    [/^obra-longa-/i, 'obra'],
-    [/^executor-/i, 'executor'],
-    [/^animador-/i, 'pintor'],
-    [/^excecao-/i, 'cientista'],
-  ]
-  for (const [re, nome] of casa) if (re.test(bare)) return nome
-  return t in TIER_COLOR && bare.startsWith('savvy-') ? t : 'other'
+  return FUNCOES.find(([re]) => re.test(bare))?.[1] ?? 'other'
 }
 
-const modelName = (id: string): string => {
-  const m = /(fable|mythos|opus|sonnet|haiku)-(\d+)(?:-(\d{1,2})(?!\d))?/i.exec(id)
-  const [, family = '', major = '', minor] = m ?? []
-  if (!family) return id.replace(/^claude-/, '').replace(/\[.*\]$/, '') || '—'
-  return `${family.charAt(0).toUpperCase()}${family.slice(1).toLowerCase()} ${major}${minor ? '.' + minor : ''}`
+const NOME_FUNCAO: Record<string, string> = {
+  executor: 'Executor', obra: 'Obra longa', contador: 'Contador', pesquisador: 'Pesquisador', revisor: 'Revisor',
+  redator: 'Redator', advogado: 'Advogado', cobranca: 'Cobrança', atendente: 'Atendente', pintor: 'Animador',
+  cientista: 'Exceção', explore: 'Explorador', other: 'Geral',
+}
+const nomeFuncao = (a: AgentRun): string => NOME_FUNCAO[funcaoDe(a.type)] ?? 'Geral'
+
+const modeloCurto = (id: string): string => {
+  const m = /(fable|mythos|opus|sonnet|haiku)/i.exec(id)?.[1]
+  return m ? m.charAt(0).toUpperCase() + m.slice(1).toLowerCase() : id.replace(/^claude-/, '').replace(/\[.*\]$/, '') || '—'
 }
 
 const norm = (s: string): string => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 
-const fmtTokens = (n: number): string =>
-  n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
-
-// Cezar: custo em % da semana, pelo câmbio da seção "Semana".
+// Câmbio do custo, pela seção "Semana": 1 ponto da semana em dólares.
 const USD_POR_PONTO = 23.5
 let usdPorPonto = USD_POR_PONTO
-const fmtCost = (usd: number): string => {
-  const p = usd / usdPorPonto
-  const texto = p < 0.1 ? p.toFixed(2) : p < 10 ? p.toFixed(1) : String(Math.round(p))
-  return `${texto.replace('.', ',')}% sem`
+// O custo aparece uma vez só: o total da sessão, na linha dos concluídos.
+const custoTotal = (list: AgentRun[]): string => {
+  const p = list.reduce((soma, a) => soma + a.costUsd, 0) / usdPorPonto
+  return p < 0.1 ? tr().costUnder : tr().costAbout(p < 10 ? p.toFixed(1).replace('.', ',') : String(Math.round(p)))
 }
 
-const fmtTime = (ms: number): string => {
-  const s = Math.max(0, Math.round(ms / 1000))
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const ss = String(s % 60).padStart(2, '0')
-  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+// Tempo em palavras e sem segundos: a imagem da linha só muda de minuto em minuto, e a animação corre sem reiniciar.
+const tempoDe = (ms: number): string => {
+  const min = Math.floor(ms / 60_000)
+  if (min < 1) return tr().justNow
+  if (min < 60) return `${min} min`
+  return `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
 }
+const duracao = (a: AgentRun): string =>
+  (a.endedAt ?? a.startedAt) - a.startedAt < 60_000 ? '<1 min' : tempoDe((a.endedAt ?? a.startedAt) - a.startedAt)
 
-const elapsed = (a: AgentRun, at: number): number => (a.endedAt ?? Math.max(at, a.startedAt)) - a.startedAt
+// Agente rodando que não anda há mais que isto ganha o aviso. Obra longa esperando build também cai aqui: é aviso, não erro.
+const QUIETO_MS = 5 * 60_000
+const quietoHa = (a: AgentRun, at: number): string | null =>
+  a.status === 'running' && at - (a.ultimoPasso ?? a.startedAt) >= QUIETO_MS ? tr().quiet(tempoDe(at - (a.ultimoPasso ?? a.startedAt))) : null
 
+const tentativa = (a: AgentRun): string => (a.round > 1 ? ` · ${tr().retry(a.round)}` : '')
+const quemEh = (a: AgentRun): string => `${nomeFuncao(a)} · ${modeloCurto(a.model)}${tentativa(a)}`
 
-const totals = (list: AgentRun[], at: number) => {
-  const cost = list.reduce((s, a) => s + a.costUsd, 0)
-  const tokens = list.reduce((s, a) => s + a.tokens, 0)
-  const start = Math.min(...list.map(a => a.startedAt))
-  const end = Math.max(...list.map(a => a.endedAt ?? Math.max(at, a.startedAt)))
-  return { cost, tokens, time: list.length ? end - start : 0 }
-}
+const separar = (list: AgentRun[]) => ({
+  rodando: list.filter(a => a.status === 'running').sort((x, y) => x.startedAt - y.startedAt),
+  erros: list.filter(a => a.status === 'failed' && !a.erroVisto).sort((x, y) => (y.endedAt ?? 0) - (x.endedAt ?? 0)),
+  fim: list
+    .filter(a => a.status === 'done' || a.status === 'stopped' || (a.status === 'failed' && a.erroVisto))
+    .sort((x, y) => (y.endedAt ?? 0) - (x.endedAt ?? 0)),
+})
 
-// --- desktop drawings: each row is one SVG, as the band above the prompt is.
+// --- desenho no desktop: cada linha é um SVG, como a faixa.
 
+// Os tokens da pílula, mais um só: barro, a cor do Clawd
 const PANE_CSS = `<style>
-.t{fill:#1f1f1f}.s{fill:#6b6b68}.m{fill:#9a9a96}.k{fill:#ecebe8}.ln{stroke:#e4e4e1}.tile{fill:#f4f3f0}
-@media (prefers-color-scheme: dark){.t{fill:#ececec}.s{fill:#a8a8a4}.m{fill:#7d7d79}.k{fill:#2c2c2b}.ln{stroke:#333331}.tile{fill:#262625}}
-.live{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.3}}
-@media (prefers-reduced-motion: reduce){.live{animation:none}}
+.fd{fill:#E9E7E1}.tx{fill:#2B2A27}.mu{fill:#6F6C65}.ok{fill:#2F8F5B}.at{fill:#B07C1E}.er{fill:#CF4A40}.br{fill:#BF5F40}
+.s-er{stroke:#CF4A40}.s-mu{stroke:#6F6C65}.s-ok{stroke:#2F8F5B}
+@media (prefers-color-scheme: dark){.fd{fill:#2D2C2A}.tx{fill:#ECEAE3}.mu{fill:#8F8C83}.ok{fill:#8CC29A}.at{fill:#E3B566}.er{fill:#E8776C}.br{fill:#E59A7D}
+.s-er{stroke:#E8776C}.s-mu{stroke:#8F8C83}.s-ok{stroke:#8CC29A}}
+.rp{animation:rp 4.8s ease-in-out infinite}@keyframes rp{0%,100%{opacity:.62}45%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.rp{animation:none}}
 </style>`
+const DESFOQUE = '<defs><filter id="b" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="1.6"/></filter></defs>'
 
-// Pixel Clawd from DockCrab (Clawdy): a 24×18 crab on a 30×28 grid, one costume per tier.
-// The body keeps the brand clay; the tier's color lives in the costume's accent.
-const CLAY = '#D97757'
-const INK = '#1F1E1D'
+type Desenho = { source: string; width: number; height: number; alt: string }
+const desenho = (w: number, h: number, alt: string, corpo: string, comBrilho = false): Desenho => ({
+  source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${PANE_CSS}${comBrilho ? DESFOQUE : ''}${corpo}</svg>`,
+  width: w,
+  height: h,
+  alt,
+})
 
-// `cls` puts a pixel in a named group: `bd` (the default) is the body and its
-// costume, `la`/`lb` the leg pairs, anything else a prop with its own motion.
-type Fill = (x: number, y: number, w: number, h: number, c: string, cls?: string) => void
-
-const stamp = (f: Fill, x: number, y: number, rows: string[], map: Record<string, string>, cls?: string): void =>
-  rows.forEach((row, dy) => [...row].forEach((ch, dx) => map[ch] && f(x + dx, y + dy, 1, 1, map[ch] ?? '', cls)))
-
-// `armCls` lets a raised claw travel with the prop it holds.
-const crabBody = (f: Fill, armFront = 0, armCls?: string): void => {
-  f(7, 10, 16, 12, CLAY)
-  f(3, 14, 4, 4, CLAY)
-  f(23, 14 + armFront, 4, 4, CLAY, armCls)
-  f(9, 12, 2, 2, INK)
-  f(19, 12, 2, 2, INK)
-  f(7, 22, 2, 4, CLAY, 'la')
-  f(17, 22, 2, 4, CLAY, 'la')
-  f(11, 22, 2, 4, CLAY, 'lb')
-  f(21, 22, 2, 4, CLAY, 'lb')
-}
-
-// Pure CSS, run by the compositor: no redraws. Periods divide one second, so the
-// once-a-second redraw of a running row restarts them in phase. Every crab walks;
-// each costume adds its prop's own motion on top.
-const CRAB_CSS = `<style>
-.run .la{animation:st .5s steps(1) infinite}.run .lb{animation:st .5s steps(1) infinite -.25s}
-.run .bd{animation:bob .5s steps(1) infinite -.125s}
-.run g{transform-box:fill-box}
-@keyframes st{50%{transform:translateY(-1px)}}@keyframes bob{50%{transform:translateY(1px)}}
-.c-fable.run{animation:float 1s ease-in-out infinite}
-.c-fable.run .la,.c-fable.run .lb,.c-fable.run .bd{animation:none}
-.c-fable.run .ant{animation:blink 1s steps(1) infinite}
-.c-fable.run .star{animation:blink .5s steps(1) infinite -.25s}
-@keyframes float{50%{transform:translateY(-2px)}}@keyframes blink{50%{opacity:.15}}
-.c-heavy.run .it{animation:scan 1s steps(1) infinite}
-.c-heavy.run .gl{animation:blink 1s steps(1) infinite -.5s}
-@keyframes scan{25%{transform:translate(-1px,1px)}50%{transform:translate(-2px,2px)}75%{transform:translate(-1px,1px)}}
-.c-careful.run .it{transform-origin:100% 100%;animation:twist .5s ease-in-out infinite}
-@keyframes twist{50%{transform:rotate(-35deg)}}
-.c-medium.run .pan{transform-origin:0 50%;animation:tilt 1s ease-in-out infinite}
-.c-medium.run .egg{animation:flip 1s ease-in-out infinite}
-@keyframes tilt{20%,40%{transform:rotate(-12deg)}}@keyframes flip{30%{transform:translateY(-5px) scaleY(-1)}60%{transform:translateY(0)}}
-.c-light.run .la{animation-duration:.25s}.c-light.run .lb{animation-duration:.25s;animation-delay:-.125s}
-.c-light.run .flag{transform-origin:0 50%;animation:wave .25s steps(1) infinite}
-@keyframes wave{50%{transform:skewY(-12deg) scaleX(.85)}}
-.c-explore.run .it{transform-origin:50% 100%;animation:fence .5s ease-in-out infinite}
-@keyframes fence{50%{transform:rotate(25deg)}}
-.c-executor.run .it{transform-origin:100% 100%;animation:twist .5s ease-in-out infinite}
-.c-advogado.run .it{transform-origin:50% 0;animation:swing 1s ease-in-out infinite}
-@keyframes swing{25%{transform:rotate(8deg)}75%{transform:rotate(-8deg)}}
-.c-contador.run .ka{animation:contadorA .5s steps(1) infinite}.c-contador.run .kb{animation:contadorA .5s steps(1) infinite -.25s}@keyframes contadorA{0%{opacity:1}50%{opacity:0}}
-.c-pesquisador.run .it{animation:pesquisadorA 1s ease-in-out infinite}@keyframes pesquisadorA{0%,100%{transform:translateX(0)}50%{transform:translateX(-10px)}}
-.c-revisor.run .pn{transform-origin:0% 100%;animation:revisorA .5s steps(1) infinite}@keyframes revisorA{0%{transform:translate(0,0)}25%{transform:translate(-1px,1px)}50%{transform:translate(-2px,0)}75%{transform:translate(-1px,-1px)}}
-.c-redator.run .pn{transform-origin:0% 100%;animation:redatorA 1s steps(1) infinite}@keyframes redatorA{0%{transform:translate(0,0) rotate(0deg)}25%{transform:translate(-1px,1px) rotate(-5deg)}50%{transform:translate(0,0) rotate(3deg)}75%{transform:translate(1px,1px) rotate(-3deg)}}
-.c-cobranca.run .pn{transform-origin:50% 50%;transform-box:fill-box;animation:cobrancaA 1s ease-in-out infinite}@keyframes cobrancaA{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.08)}}
-.c-atendente.run .d1,.c-atendente.run .d2,.c-atendente.run .d3{animation:atendenteD 1s steps(1) infinite}.c-atendente.run .d2{animation-delay:-.67s}.c-atendente.run .d3{animation-delay:-.34s}@keyframes atendenteD{0%{opacity:1}34%{opacity:.25}}
-.c-obra.run .sh{transform-origin:50% 45%;animation:obraS .6s ease-in-out infinite}@keyframes obraS{0%,100%{transform:rotate(-9deg)}50%{transform:rotate(9deg)}}
-.c-pintor.run .pn{transform-origin:50% 100%;animation:pintorA .5s ease-in-out infinite}@keyframes pintorA{0%,100%{transform:rotate(-14deg)}50%{transform:rotate(14deg)}}
-.c-cientista.run .bb{animation:cientistaA 1s steps(4) infinite}.c-cientista.run .bc{animation:cientistaA 1s steps(4) infinite -.5s}@keyframes cientistaA{0%{transform:translateY(0);opacity:1}70%{opacity:1}100%{transform:translateY(-5px);opacity:0}}
-@media (prefers-reduced-motion: reduce){.run,.run g{animation:none!important}}
-</style>`
-
-const COSTUMES: Record<string, (f: Fill, t: string) => void> = {
-  // Fable: astronaut in a glass dome; floats instead of walking, the antenna and the star blink.
-  fable: (f, t) => {
-    crabBody(f)
-    f(6, 7, 18, 1, '#E6E8EE'); f(5, 8, 1, 14, '#E6E8EE'); f(24, 8, 1, 14, '#E6E8EE'); f(6, 22, 18, 1, '#C9CCD2')
-    f(6, 8, 18, 14, 'rgba(169,214,245,.32)'); f(8, 9, 2, 1, '#fff'); f(8, 10, 1, 2, '#fff')
-    f(14, 4, 2, 3, '#C9CCD2'); f(14, 2, 2, 2, t, 'ant'); f(13, 18, 4, 2, t)
-    f(27, 3, 1, 3, '#F5C542', 'star'); f(26, 4, 3, 1, '#F5C542', 'star')
-  },
-  // Heavy: detective with a deerstalker; the magnifier sweeps and glints.
-  heavy: (f, t) => {
-    crabBody(f, -4, 'it')
-    stamp(f, 6, 3, ['......bbbbbb......', '....bbcbbcbbbb....', '...bbbbbbbbbbbb...', '..bcbbcbbcbbcbbb..', '.bbbbbbbbbbbbbbbb.', 'dddddddddddddddddd'], { b: '#7A4A26', c: '#A0703F', d: '#5A3519' })
-    f(6, 9, 18, 1, t)
-    stamp(f, 23, 1, ['.kkk.', 'k...k', 'k...k', 'k...k', '.kkk.'], { k: '#3A3A3C' }, 'it')
-    f(24, 2, 3, 3, 'rgba(169,214,245,.7)', 'it'); f(25, 6, 1, 4, '#7A4A26', 'it'); f(24, 2, 1, 1, '#fff', 'gl')
-  },
-  // Careful: engineer in a hard hat; the wrench turns a bolt.
-  careful: (f, t) => {
-    crabBody(f)
-    stamp(f, 6, 4, ['.....yyyyyyyy.....', '...yyyyyhhyyyyy...', '..yyyyyyhhyyyyyy..', '..yyyyyyhhyyyyyy..', '.yyyyyyyhhyyyyyyy.', 'dddddddddddddddddd'], { y: '#F5C542', h: '#FBE08A', d: '#C99A1E' })
-    f(13, 5, 4, 2, t)
-    stamp(f, 0, 10, ['.s.s', 'sss.', '.s..', '.s..'], { s: '#8E929A' }, 'it')
-  },
-  // Medium: chef, the toque traced from DockCrab's Sprites.chefHat; tosses the omelette.
-  medium: (f, t) => {
-    crabBody(f, -4, 'pan')
-    stamp(f, 6, 0, ['........lll.......', '.......lllll......', '.wwwwgwwwwwwgwwwww', 'wwwwwwwwwwwwwwwwww', 'wwwwwwwwwwwwwwwwww', 'wwwwwgwwwwwggwwwww', '.wwwwgwwwwwggwwwww', '.dddbbbbbbbbbbbbb.', '.dddbbbbbbbbbbbbb.', '.dddbbbbbbbbbbbbb.'], { w: '#F4F3EE', l: '#F7F6F2', g: '#D2D1C8', b: t, d: '#B45F43' })
-    f(22, 8, 7, 2, '#4A4A48', 'pan'); f(26, 10, 1, 1, '#4A4A48', 'pan'); f(24, 7, 3, 1, '#F5B731', 'egg')
-  },
-  // Light: racer in a helmet; runs at double pace, the checkered flag flutters.
-  light: (f, t) => {
-    crabBody(f, -4)
-    stamp(f, 6, 5, ['....rrrrrrrrrr....', '..rrrrrrwwrrrrrr..', '.rrrrrrrwwrrrrrrr.', '.rrrrrrrwwrrrrrrr.', '.rrrrrrrwwrrrrrrr.', '.kkkkkkkkkkkkkkkkr'], { r: t, w: '#F8F6F1', k: INK })
-    f(25, 1, 1, 9, '#8E929A')
-    stamp(f, 26, 1, ['wkwk', 'kwkw', 'wkwk'], { w: '#F8F6F1', k: INK }, 'flag')
-  },
-  // Explore: pirate scouting the code; the cutlass fences.
-  explore: f => {
-    crabBody(f)
-    stamp(f, 5, 3, ['.kk..............kk.', '.kkk....kkkk....kkk.', '..kkkkkkkwwkkkkkkk..', '..kkkkkkkkkkkkkkkk..', '.gggggggggggggggggg.'], { k: '#55514C', w: '#F8F6F1', g: '#F5C542' })
-    f(7, 11, 11, 1, INK); f(18, 11, 4, 3, INK)
-    f(27, 6, 1, 9, '#C9CCD2', 'it'); f(26, 15, 3, 1, '#7A4A26', 'it')
-  },
-  // Advogado: terno azul-marinho, camisa branca, gravata vermelha; a maleta balança.
-  advogado: f => {
-    crabBody(f)
-    stamp(f, 7, 16, ['nnnnnwwrrwwnnnnn', 'nnnnnnwrrwnnnnnn', 'nnnnnnnrrnnnnnnn', 'nnnnnnnrrnnnnnnn', 'nnnnnnnnnnnnnnnn', 'nnnnnnnnnnnnnnnn'], { n: '#22304F', w: '#F8F6F1', r: '#C0392B' })
-    f(3, 14, 4, 2, '#22304F'); f(23, 14, 4, 2, '#22304F')
-    f(25, 17, 3, 1, INK, 'it'); f(23, 18, 7, 4, '#6B3E1F', 'it'); f(26, 19, 1, 1, '#F5C542', 'it')
-  },
-  // Executor: peão de obra de capacete; a chave gira o parafuso.
-  executor: (f, t) => {
-    crabBody(f)
-    stamp(f, 6, 4, ['.....yyyyyyyy.....', '...yyyyyhhyyyyy...', '..yyyyyyhhyyyyyy..', '..yyyyyyhhyyyyyy..', '.yyyyyyyhhyyyyyyy.', 'dddddddddddddddddd'], { y: '#F5C542', h: '#FBE08A', d: '#C99A1E' })
-    f(13, 5, 4, 2, t)
-    stamp(f, 0, 10, ['.s.s', 'sss.', '.s..', '.s..'], { s: '#8E929A' }, 'it')
-  },
-  contador: (f, t) => {
-  crabBody(f, -4, 'it')
-  // viseira: faixa escura, aba verde, sombra da aba
-  stamp(f, 7, 6, ['..dddddddddddd..', '.gggggggggggggg.', 'gggggggggggggggg', 'mmmmmmmmmmmmmmmm'], { d: '#1F5E3A', g: '#3FB574', m: '#2E8B57' })
-  f(9, 7, 4, 1, '#8FE0B0')
-  // calculadora (x23-28, y3-9), na garra que subiu
-  stamp(f, 23, 3, ['dddddd', 'dlllld', 'dddddd', 'dwwwwd', 'dwwwwd', 'dwwwwd', 'dddddd'], { d: '#3A3D44', l: '#B8F0C8', w: '#D5D7DC' }, 'it')
-  f(24, 4, 1, 1, '#2E8B57', 'it')
-  // teclas que piscam, em dois grupos alternados
-  f(24, 6, 1, 1, '#F5C542', 'ka'); f(26, 6, 1, 1, '#F5C542', 'ka'); f(25, 7, 1, 1, '#F5C542', 'ka'); f(27, 8, 1, 1, '#F5C542', 'ka')
-  f(25, 6, 1, 1, '#E05A4F', 'kb'); f(27, 7, 1, 1, '#E05A4F', 'kb'); f(24, 8, 1, 1, '#E05A4F', 'kb'); f(26, 8, 1, 1, '#E05A4F', 'kb')
-},
-  pesquisador: (f, t) => {
-  crabBody(f, -4, 'it')
-  stamp(f, 6, 2, [
-    '.....kkkkkkkk.....',
-    '....khhkkkkkkk....',
-    '...khhkkkkkkkkk...',
-    '...kkkkkkkkkkkk...',
-    '..bbbbbbbbbbbbbb..',
-  ], { k: '#D8C48A', h: '#EFE3B8', b: '#6B4A22' })
-  stamp(f, 3, 7, [
-    'ssssssssssssssssssssss',
-    '.dddddddddddddddddddd.',
-  ], { s: '#B89F62', d: '#8A7440' })
-  stamp(f, 20, 14, [
-    '.rrrr.',
-    'rggwgr',
-    'rgwggr',
-    'rggggr',
-    'rggggr',
-    '.rrrr.',
-  ], { r: '#4A3418', g: '#CDEBF5', w: '#FFFFFF' }, 'it')
-  stamp(f, 25, 19, ['r.', 'rr', '.r', '.r'], { r: '#4A3418' }, 'it')
-},
-  revisor: (f, t) => {
-  crabBody(f)
-  const F = '#2B2D42', L = '#F4F1E8'
-  // armação 6x6 com lente clara; os olhos (9,12) e (19,12) ficam dentro
-  stamp(f, 7, 10, ['FFFFFF', 'FLLLLF', 'FLLLLF', 'FLLLLF', 'FLLLLF', 'FFFFFF'], { F, L })
-  stamp(f, 17, 10, ['FFFFFF', 'FLLLLF', 'FLLLLF', 'FLLLLF', 'FLLLLF', 'FFFFFF'], { F, L })
-  f(9, 12, 2, 2, '#1F1E1D'); f(19, 12, 2, 2, '#1F1E1D')
-  f(13, 12, 4, 1, F)
-  // caneta na garra direita, ponta para baixo e para a esquerda
-  stamp(f, 22, 12, [
-    '.....rr.', '....rRr.', '...rRr..', '..rRr...', '.wRr....', '.kw.....', 'k.......'
-  ].map(s => s), { r: '#C0392B', R: '#E85D4A', w: '#F4F1E8', k: '#8E929A' }, 'pn')
-},
-  redator: (f, t) => {
-  crabBody(f, -4, 'pn')
-  stamp(f, 7, 16, [
-    'nnnnnwwrrwwnnnnn',
-    'nnnnnnwrrwnnnnnn',
-    'nnnnnnnrrnnnnnnn',
-    'nnnnnnnrrnnnnnnn',
-    'nnnnnnnnnnnnnnnn',
-    'nnnnnnnnnnnnnnnn'], { n: '#4A4E57', w: '#F8F6F1', r: '#7B1E3A' })
-  f(3, 14, 4, 2, '#4A4E57'); f(23, 10, 4, 2, '#4A4E57', 'pn')
-  // pena: haste marrom, barbas creme, ponta de tinta
-  stamp(f, 22, 1, [
-    '.....ccc',
-    '....cccc',
-    '...cccke',
-    '..ccckce',
-    '..ccckce',
-    '...cckc.',
-    '...cck..',
-    '...ck...',
-    '...k....',
-    '...k....',
-    '..k.....',
-    '..k.....',
-    '.k......',
-    'd.......'], { c: '#F6EFD8', e: '#CDBF98', k: '#6B4A2B', d: INK }, 'pn')
-},
-  cobranca: (f, t) => {
-  crabBody(f)
-  stamp(f, 7, 16, ['nnnnnwwgggwwnnnnn'.slice(0, 5) + 'wwggwwnnnnn', 'nnnnnnwggwnnnnnn', 'nnnnnnnggnnnnnnn', 'nnnnnnnggnnnnnnn', 'nnnnnnnnnnnnnnnn', 'nnnnnnnnnnnnnnnn'], { n: '#22304F', w: '#F8F6F1', g: '#2E7D32' })
-  f(3, 14, 4, 2, '#22304F'); f(23, 14, 4, 2, '#22304F')
-  stamp(f, 24, 9, ['.dddd.', 'dhgsgd', 'dgsssd', 'dgsggd', 'dgsssd', 'dgggsd', 'dggsgd', '.dddd.'], { d: '#B8860B', g: '#F5C542', h: '#FBE08A', s: '#8A5A00' }, 'pn')
-},
-  atendente: (f, t) => {
-  crabBody(f)
-  const H = '#6B7280', L = '#B8BEC9', D = '#3B4048'
-  // arco do headset sobre a cabeca
-  stamp(f, 7, 6, ['...llllllll...', '.hh........hh.', 'hh..........hh', 'h............h'].map(r => r.padEnd(16, '.')), { l: L, h: H })
-  f(7, 9, 1, 2, H); f(22, 9, 1, 2, H)
-  // fones nas laterais
-  f(6, 11, 3, 5, H); f(6, 11, 1, 5, D); f(8, 12, 1, 3, L)
-  f(21, 11, 3, 5, H); f(23, 11, 1, 5, D); f(21, 12, 1, 3, L)
-  // microfone: haste curva ate perto da boca
-  f(7, 16, 1, 1, H); f(8, 17, 1, 1, H); f(9, 18, 2, 1, H); f(11, 18, 2, 2, D)
-  // balao WhatsApp
-  f(20, 0, 9, 1, t); f(19, 1, 11, 4, t); f(20, 5, 9, 1, t); f(22, 6, 2, 1, t); f(22, 7, 1, 1, t)
-  f(21, 2, 2, 2, '#FFFFFF', 'd1'); f(24, 2, 2, 2, '#FFFFFF', 'd2'); f(27, 2, 2, 2, '#FFFFFF', 'd3')
-},
-  obra: (f, t) => {
-  crabBody(f)
-  stamp(f, 6, 4, ['.....yyyyyyyy.....', '...yyyyyhhyyyyy...', '..yyyyyyhhyyyyyy..', '..yyyyyyhhyyyyyy..', '.yyyyyyyhhyyyyyyy.', 'dddddddddddddddddd'], { y: '#F5C542', h: '#FBE08A', d: '#C99A1E' })
-  f(13, 5, 4, 2, t)
-  for (let y = 5; y <= 20; y++) { const x = Math.round(27 - (y - 5) * 2 / 16); f(x, y, 2, 1, '#8A5A2B', 'sh'); f(x, y, 1, 1, '#B07A42', 'sh') }
-  f(27, 4, 2, 1, '#6B4420', 'sh')
-  stamp(f, 23, 20, ['.kGGGk', 'kGGGGk', 'kGGwGk', 'kGGGGk', '.kGGk.', '..kk..'].map(r => r.padEnd(6, '.')), { k: '#5E6168', G: '#A9ADB5', w: '#D8DBE0' }, 'sh')
-  f(23, 16, 2, 2, '#D97757', 'sh'); f(27, 16, 1, 2, '#D97757', 'sh')
-},
-  pintor: (f, t) => {
-  crabBody(f, -4, 'pn')
-  stamp(f, 4, 4, ['......ss........', '....rrrrrrrr....', '..rrrrrrrrrrrr..', '.rrrrhrrrrrrrrr.', 'rrrrrrrrrrrrrrrr', 'dddddddddddddddd', '.dd.............'], { r: '#B03A48', h: '#D8707A', s: '#5A1A22', d: '#7E2230' })
-  stamp(f, 23, 3, ['.mm.', 'mmmm', '.gg.', '.gg.', '.bb.', '.bb.', '.bb.', '.bb.'], { m: '#26C6DA', g: '#B0B4BC', b: '#8B5A2B' }, 'pn')
-},
-  cientista: (f, t) => {
-  crabBody(f)
-  // jaleco
-  stamp(f, 7, 15, [
-    'wwwwwww..wwwwwww',
-    'wwwwwwwsswwwwwww',
-    'wwbwwwwsswwwwwww',
-    'wsssswwsswwwwwww',
-    'wswwswwsswwwwwww',
-    'wswwswwsswwwwwww',
-    'wsssswwsswwwwwww'
-  ], { w: '#FFFFFF', s: '#B9C0C9', b: '#3B6FD4' })
-  // óculos: armação escura, lente clara translúcida, olho preto visível no meio
-  f(12, 12, 6, 2, '#3A3F47')
-  const L = ['tttttt', 'tcccct', 'tceect', 'tceect', 'tttttt']
-  stamp(f, 7, 10, L, { t: t, c: '#CFEFF5', e: INK }, 'ox')
-  stamp(f, 17, 10, L, { t: t, c: '#CFEFF5', e: INK }, 'ox')
-  // tubo de ensaio
-  stamp(f, 1, 3, [
-    'oooo', 'oeeo', 'oeeo', 'oeeo', 'oeeo',
-    'olLo', 'ollo', 'ollo', 'ollo', 'ollo', 'ollo', 'oooo'
-  ], { o: '#5B8FA3', e: '#DDF1F7', l: '#6FD33F', L: '#B7F58A' })
-  // bolhas
-  f(2, 11, 1, 1, '#F2FFE8', 'bb'); f(3, 8, 1, 1, '#F2FFE8', 'bb')
-  f(3, 10, 1, 1, '#F2FFE8', 'bc'); f(2, 7, 1, 1, '#F2FFE8', 'bc')
-},
-  other: f => crabBody(f),
-}
-
-const costumeOf = (type: string): string => (type === 'Explore' ? 'explore' : tierOf(type))
-
-const CRAB_SCALE = 1.1
-
-// Body and props nest inside `bd` so a prop rides the bob and adds its own motion;
-// legs stay outside it and step on their own.
-const crab = (x: number, y: number, costume: string, dim = false, isWalking = false, scale = CRAB_SCALE): string => {
-  const groups = new Map<string, string[]>([['bd', []]])
-  const f: Fill = (cx, cy, w, h, c, cls = 'bd') => {
-    if (!groups.has(cls)) groups.set(cls, [])
-    groups.get(cls)?.push(`<rect x="${cx}" y="${cy}" width="${w}" height="${h}" fill="${c}"/>`)
+// Largura de texto na Segoe, estimada. A do `charEm` é folgada de propósito e cortaria a tarefa antes da hora.
+const emLinha = (ch: string): number => (/[\s.,:;'|!il1()[\]jtfr]/.test(ch) ? 0.3 : /[A-ZÀ-Ümw@%]/.test(ch) ? 0.68 : 0.53)
+const largura = (s: string, size: number): number => [...s].reduce((w, ch) => w + emLinha(ch) * size, 0)
+const caber = (s: string, size: number, max: number): string => {
+  if (largura(s, size) <= max) return s
+  let out = ''
+  for (const ch of s) {
+    if (largura(out + ch + '…', size) > max) break
+    out += ch
   }
-  const draw = COSTUMES[costume] ?? ((g: Fill) => crabBody(g))
-  draw(f, colorOf(costume))
-  const group = (cls: string) => `<g class="${cls}">${(groups.get(cls) ?? []).join('')}</g>`
-  const props = [...groups.keys()].filter(k => k !== 'bd' && k !== 'la' && k !== 'lb')
-  const body = `<g class="bd">${(groups.get('bd') ?? []).join('')}${props.map(group).join('')}</g>`
-  return `<g transform="translate(${x},${y}) scale(${scale})" opacity="${dim ? 0.45 : 1}" shape-rendering="crispEdges"><g class="c-${costume}${isWalking ? ' run' : ''}">${body}${group('la')}${group('lb')}</g></g>`
+  return out.trimEnd() + '…'
+}
+const rotulo = (x: number, y: number, s: string, cls: string, size = 12, peso = 400, ancora = ''): string =>
+  `<text x="${x}" y="${y}" class="${cls}" font-family="${PILULA_FONTE}" font-size="${size}"${peso !== 400 ? ` font-weight="${peso}"` : ''}${ancora ? ` text-anchor="${ancora}"` : ''} style="font-variant-numeric:tabular-nums">${xml(s)}</text>`
+
+// As fantasias, em cima da grade do Clawd aprovado: corpo x6-22 y6-18, braços x2-6 e x22-26 y10-14, olhos em x8 e x18.
+// Sem garra e sem pinça: nada segura nada. O objeto fica encostado no braço ou apoiado no chão.
+const retangulo = (x: number, y: number, w: number, h: number, c: string, extra = ''): string =>
+  `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}"${extra}/>`
+const carimbo = (x0: number, y0: number, linhas: string[], cores: Record<string, string>): string => {
+  let s = ''
+  linhas.forEach((l, dy) => {
+    let dx = 0
+    while (dx < l.length) {
+      const ch = l.charAt(dx)
+      let fim = dx + 1
+      while (fim < l.length && l.charAt(fim) === ch) fim++
+      const cor = cores[ch]
+      if (cor) s += retangulo(x0 + dx, y0 + dy, fim - dx, 1, cor)
+      dx = fim
+    }
+  })
+  return s
 }
 
-const statusMark = (x: number, y: number, status: string, color: string): string => {
-  if (status === 'running') return `<circle class="live" cx="${x}" cy="${y}" r="3.5" fill="${color}"/>`
-  if (status === 'done') return `<path d="M${x - 5} ${y}l3.5 3.5 6.5-7" fill="none" stroke="#3B9C5F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`
-  if (status === 'failed') return `<path d="M${x - 4} ${y - 4}l8 8M${x + 4} ${y - 4}l-8 8" stroke="#D0453F" stroke-width="1.8" stroke-linecap="round"/>`
-  return `<circle cx="${x}" cy="${y}" r="5" fill="none" stroke="#9a9a96" stroke-width="1.4"/><path d="M${x} ${y - 2.5}v2.8l1.8 1.2" fill="none" stroke="#9a9a96" stroke-width="1.4" stroke-linecap="round"/>`
+const capacete = (): string =>
+  carimbo(6, -1, ['.....llllll.....', '...llhhmmmmmm...', '..lhhhhmmmmmmd..', '.lhhhhhmmmmmmdd.', '.mmmmmmmmmmmddd.', '.mmmmmmmmmmdddd.'], { l: '#F6DC93', h: '#EFC766', m: '#E3B566', d: '#C4933F' }) +
+  retangulo(4, 5, 20, 1, '#A87A2E')
+const chapeu = (): string =>
+  carimbo(7, 0, ['...lllllllll..', '..lhhhhhhhmmm.', '..hhhhhhhmmmm.', '..hhhhhhmmmmm.', '..ffffffffffff'], { l: '#E7D9B0', h: '#D9C795', m: '#C7B37F', f: '#6E5430' }) +
+  retangulo(3, 5, 22, 1, '#A8935F')
+const pirata = (): string =>
+  carimbo(5, 0, ['.kk............kk.', '.kkk...kkkk...kkk.', '..kkkkkkwwkkkkkk..', '..kkkkkkkkkkkkkk..', '..kkkkkkkkkkkkkk..', 'gggggggggggggggggg'], { k: '#47433E', w: '#ECEAE3', g: '#E3B566' }) +
+  retangulo(7, 9, 15, 1, '#1F1E1D') + retangulo(18, 8, 3, 4, '#1F1E1D')
+const viseira = (): string =>
+  carimbo(6, 3, ['..ddddddddddddd.', '.ggggggggggggggg', 'ggggggggggggggggg'], { d: '#2C6B49', g: '#58A97B' }) +
+  retangulo(5, 6, 18, 1, '#2C6B49') + retangulo(8, 4, 5, 1, '#9FD3B1')
+const boina = (): string =>
+  carimbo(5, 0, ['.........ss.......', '.....llllllll.....', '...lhhhhhhhhhmm...', '..hhhhhhhhhhmmmmm.', '.hhhhhhhhhhmmmmmmm', '.ddddddddddddddd..'], { s: '#5A1A22', l: '#C96A72', h: '#B04654', m: '#963645', d: '#7A2733' })
+const oculos = (f: string, l: string): string =>
+  retangulo(7, 7, 6, 1, f) + retangulo(7, 11, 6, 1, f) + retangulo(7, 7, 1, 5, f) + retangulo(12, 7, 1, 5, f) +
+  retangulo(16, 7, 6, 1, f) + retangulo(16, 11, 6, 1, f) + retangulo(16, 7, 1, 5, f) + retangulo(21, 7, 1, 5, f) + retangulo(13, 9, 3, 1, f) +
+  retangulo(8, 8, 4, 3, l, ' fill-opacity=".22"') + retangulo(17, 8, 4, 3, l, ' fill-opacity=".22"')
+const terno = (n: string, nl: string, g: string): string =>
+  retangulo(6, 13, 16, 5, n) + retangulo(22, 12, 4, 2, n) + retangulo(2, 12, 4, 2, n) + retangulo(6, 13, 16, 1, nl) +
+  carimbo(11, 13, ['wwwwww', '.wggw.', '..gg..', '..gg..', '..gg..'], { w: '#F1EFE8', g })
+const jaleco = (): string =>
+  retangulo(6, 13, 16, 5, '#E9E7E1') + retangulo(6, 13, 16, 1, '#F7F6F2') + retangulo(13, 14, 2, 4, '#B9BFC6') +
+  retangulo(2, 12, 4, 2, '#E9E7E1') + retangulo(22, 12, 4, 2, '#E9E7E1') + retangulo(8, 15, 3, 2, '#B9BFC6')
+const headset = (): string =>
+  carimbo(5, 1, ['.....llllll.....', '...ll......ll...', '..h..........h..'], { l: '#C9CCD2', h: '#8E929A' }) +
+  retangulo(5, 8, 2, 5, '#6F737B') + retangulo(21, 8, 2, 5, '#6F737B') + retangulo(6, 3, 1, 5, '#8E929A') + retangulo(21, 3, 1, 5, '#8E929A') +
+  retangulo(7, 12, 1, 3, '#6F737B') + retangulo(8, 14, 3, 1, '#6F737B')
+const balao = (): string =>
+  retangulo(22, 0, 9, 6, '#58A97B', ' rx="1"') + retangulo(24, 6, 2, 2, '#58A97B') + retangulo(24, 2, 1, 2, '#fff') + retangulo(26, 2, 1, 2, '#fff') + retangulo(28, 2, 1, 2, '#fff')
+const moeda = (): string =>
+  carimbo(26, 8, ['.dddd.', 'dhhmmd', 'dhmmmd', 'dhmmmd', 'dhmmmd', '.dddd.'], { d: '#A87A2E', h: '#F6DC93', m: '#E3B566' }) + retangulo(28, 10, 2, 2, '#A87A2E')
+const pa = (): string =>
+  retangulo(28, -1, 2, 18, '#9A6C3C') + retangulo(28, -1, 1, 18, '#B98B57') + retangulo(26, -2, 6, 2, '#7A5229') +
+  carimbo(26, 17, ['gggggg', 'gggggg', 'hggggd', '.ggdd.', '..dd..'], { g: '#A9ADB5', h: '#D8DBE0', d: '#7B7F87' })
+const pena = (): string =>
+  carimbo(25, -1, ['....cc', '...ccc', '..cccc', '..ccck', '.ccckc', '.cckc.', '.ckc..', '.kc...', '.k....', 'k.....', 'k.....'], { c: '#EFE7CF', k: '#7A5229' })
+const lupa = (): string =>
+  carimbo(25, 5, ['.rrrr..', 'rvvvvr.', 'rvwvvr.', 'rvvvvr.', 'rvvvvr.', '.rrrr..', '....rr.', '.....rr'], { r: '#6E5430', v: '#BFDDE8', w: '#FFFFFF' })
+const pincel = (): string =>
+  retangulo(28, 3, 2, 12, '#9A6C3C') + retangulo(28, 1, 2, 2, '#B0B4BC') + carimbo(27, -3, ['.mm.', 'mmmm', 'mmmm', '.mm.'], { m: '#7FB6C4' })
+const tubo = (): string =>
+  carimbo(26, 1, ['oooooo', '.oeeo.', '.oeeo.', '.oeeo.', '.olLo.', '.ollo.', '.ollo.', '.ollo.', '.ollo.', '..oo..'], { o: '#7F97A3', e: '#DDEAEE', l: '#8CC29A', L: '#CDE9D5' })
+const prancheta = (): string =>
+  carimbo(26, 7, ['..kk..', 'mmmmmm', 'mppppm', 'mplppm', 'mppppm', 'mplppm', 'mppppm', 'mmmmmm'], { k: '#6F6C65', m: '#8A6A42', p: '#F1EFE8', l: '#8F8C83' })
+const calculadora = (): string =>
+  carimbo(26, 8, ['dddddd', 'dlllld', 'dddddd', 'dwdwdd', 'dddddd', 'dwdwdd', 'dddddd'], { d: '#3A3D44', l: '#BFE3CB', w: '#C9CCD2' })
+const maleta = (): string =>
+  retangulo(27, 12, 3, 1, '#3A2412') + carimbo(25, 13, ['bbbbbbb', 'bbbbbbb', 'bbbgbbb', 'bbbbbbb', 'ddddddd'], { b: '#7A5229', g: '#E3B566', d: '#5A3B1C' })
+
+const FANTASIAS: Record<string, () => string> = {
+  executor: capacete,
+  obra: () => capacete() + pa(),
+  contador: () => viseira() + calculadora(),
+  pesquisador: () => chapeu() + lupa(),
+  revisor: () => oculos('#2B2D42', '#F1EFE8') + prancheta(),
+  redator: () => terno('#4A4E57', '#5B606A', '#7B2438') + pena(),
+  advogado: () => terno('#27365A', '#34476F', '#B8453A') + maleta(),
+  cobranca: () => terno('#27365A', '#34476F', '#3C8A5D') + moeda(),
+  atendente: () => headset() + balao(),
+  pintor: () => boina() + pincel(),
+  cientista: () => jaleco() + oculos('#2F6F73', '#CFEFF5') + tubo(),
+  explore: pirata,
 }
 
-const svg = (W: number, H: number, body: string): string =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${PANE_CSS}${CRAB_CSS}${body}</svg>`
+// A caixa do Clawd cresce para caber chapéu e objeto, com o corpo no mesmo pixel de 2 px da faixa
+const CLAWD_ROW = 32
+const caixaClawd = (svg: string, x: number, y: number): string =>
+  svg.replace(/<svg [^>]*>/, `<svg x="${x}" y="${y}" width="${CLAWD_ROW}" height="31" viewBox="-1 -7 32 31" shape-rendering="crispEdges">`)
+const vestir = (svg: string, roupa: string): string => svg.replace(/<\/g><\/svg>$/, `${roupa}</g></svg>`)
 
-const HEADER_H = 44
+// Andar na metade da velocidade da faixa e cada agente na sua fase: doze não marcham juntos.
+// A fase vem do id, para o agente não pular de passo quando outro termina.
+const devagar = (svg: string, fase: number): string =>
+  svg.replace(/<style>(.*?)<\/style>/s, (_, css: string) =>
+    '<style>' +
+    css.replace(/(\d*\.?\d+)s (steps\(1\)|ease-in-out|ease-out) infinite(?: (-?\d*\.?\d+)s)?/g, (_m, d: string, curva: string, atraso?: string) =>
+      `${(parseFloat(d) * 2).toFixed(2)}s ${curva} infinite ${(parseFloat(atraso ?? '0') * 2 - fase).toFixed(2)}s`) +
+    '</style>')
+const faseDe = (id: string): number => ([...id].reduce((h, ch) => (h * 31 + (ch.codePointAt(0) ?? 0)) % 997, 7) % 200) / 100
 
-// The pane's own title already says "Agents": the header is the three totals.
-const headerSvg = (W: number, t: ReturnType<typeof totals>): string => {
-  const s = tr()
-  const gap = 6
-  const tw = (W - gap * 2) / 3
-  const tile = (i: number, k: string, v: string) =>
-    `<rect class="tile" x="${i * (tw + gap)}" y="0" width="${tw}" height="40" rx="8"/>
-<text class="s" x="${i * (tw + gap) + 9}" y="16" font-family="${FONT}" font-size="11">${k}</text>
-<text class="t" x="${i * (tw + gap) + 9}" y="33" font-family="${FONT}" font-size="15" font-weight="600" font-variant-numeric="tabular-nums">${v}</text>`
-  return svg(
-    W,
-    HEADER_H,
-    `${tile(0, s.cost, '≈' + fmtCost(t.cost))}${tile(1, s.tokens, fmtTokens(t.tokens))}${tile(2, s.time, fmtTime(t.time))}`,
-  )
+const clawdAndando = (a: AgentRun): string =>
+  vestir(devagar(CLAWD_TRABALHANDO, faseDe(a.id)), FANTASIAS[funcaoDe(a.type)]?.() ?? '')
+const clawdParado = (a: AgentRun): string =>
+  vestir(CLAWD_VEZ.replace(/<style>.*?<\/style>/s, '<style>.vm,.vf{opacity:0}</style>'), FANTASIAS[funcaoDe(a.type)]?.() ?? '')
+// Erro: o Clawd vermelho sem o tremor, só o "!" piscando devagar
+const clawdCaido = (): string =>
+  CLAWD_PANICO.replace(/\.ps\{[^}]*\}/, '').replace(/\.pe\{[^}]*\}/, '').replace(/\.pd\{[^}]*\}/, '').replace(/\.pu\{[^}]*\}/, '')
+    .replace(/\.pg\{[^}]*\}/, '.pg{opacity:.5}').replace(/\.px\{animation:px 1s/, '.px{animation:px 3s')
+
+const capsula = (x: number, y: number, cls: string): string => `<rect class="${cls}" x="${x}" y="${y}" width="4" height="12" rx="2"/>`
+const seta = (x: number, y: number, aberto: boolean): string =>
+  `<path d="${aberto ? `M${x - 3.5} ${y - 2}l3.5 3.5 3.5-3.5` : `M${x - 2} ${y - 3.5}l3.5 3.5-3.5 3.5`}" fill="none" class="s-mu" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`
+
+// A única pílula do topo: o erro já tem cartão e os concluídos já têm linha, repetir seria ruído
+const placarSvg = (W: number, n: number): Desenho => {
+  const palavra = tr().working
+  const w = Math.ceil(22 + largura(String(n), 12) + 5 + largura(palavra, 11.5) + 12)
+  return desenho(W, 34, `${n} ${palavra}`,
+    `<rect class="fd" y="1" width="${w}" height="24" rx="12"/><g filter="url(#b)" opacity=".5">${capsula(11, 7, 'br')}</g>${capsula(11, 7, 'br rp')}` +
+    rotulo(22, 17, String(n), 'tx', 12, 600) + rotulo(22 + largura(String(n), 12) + 5, 17, palavra, 'mu', 11.5), true)
 }
 
-// The task's own progress when the worker reports steps; a finished run is full.
-const progressOf = (a: AgentRun): number | null => {
-  if (a.status === 'done') return 1
-  if (a.stepTotal) return Math.min(1, (a.stepDone ?? 0) / a.stepTotal)
-  return null
+const erroSvg = (W: number, a: AgentRun, at: number): Desenho => {
+  const moldura = (extra: string) => `<rect x=".5" y=".5" width="${W - 1}" height="55" rx="13" fill="none" class="s-er" ${extra}/>`
+  const fala = tr().failedAgo(tempoDe(at - (a.endedAt ?? at)))
+  return desenho(W, 62, `${a.description}: ${fala}`,
+    `<rect class="fd" x=".5" y=".5" width="${W - 1}" height="55" rx="13"/>${moldura('stroke-opacity=".55" stroke-width="1.5" filter="url(#b)"')}${moldura('stroke-opacity=".85"')}` +
+    caixaClawd(clawdCaido(), 8, 13) + rotulo(46, 24, caber(a.description || a.type, 12.5, W - 60), 'tx', 12.5, 500) +
+    rotulo(46, 41, fala, 'er', 11.5) + (W >= 300 ? rotulo(W - 14, 41, quemEh(a), 'mu', 11.5, 400, 'end') : ''), true)
 }
 
-const ctxOf = (a: AgentRun): number => (a.contextMax ? Math.min(100, Math.round((a.contextTokens / a.contextMax) * 100)) : 0)
-
-const agentSvg = (W: number, a: AgentRun, at: number): string => {
-  const s = tr()
-  const tier = tierOf(a.type)
-  const color = colorOf(tier)
-  const ctx = ctxOf(a)
-  const textW = W - 42 - 22
-  const meta = [a.effort ? `${modelName(a.model)} · ${a.effort}` : modelName(a.model)]
-  if (a.round > 1) meta.push(`${s.round} ${a.round}`)
-  if (a.status === 'failed') meta.push(s.failed)
-  const barW = textW
-  const progress = progressOf(a)
-  const stats = `ctx ${ctx}% · ${fmtTokens(a.contextTokens)}  ≈${fmtCost(a.costUsd)}  ${fmtTime(elapsed(a, at))}`
-  const steps = a.stepTotal ? `${a.stepDone ?? 0}/${a.stepTotal}${a.stepNote ? ' · ' + a.stepNote : ''}` : ''
-  const stepsW = Math.max(0, barW - textWidth(stats, 11) - 12)
-  // Without reported steps the bar falls back to the context, drawn grey.
-  const fillW = Math.round(barW * (progress ?? ctx / 100))
-  return svg(
-    W,
-    66,
-    `${crab(0, 14, costumeOf(a.type), false, a.status === 'running')}
-<text class="t" x="42" y="18" font-family="${FONT}" font-size="13" font-weight="600">${xml(fitText(a.description || a.type, 13, textW))}</text>
-<text x="42" y="34" font-family="${FONT}" font-size="11"><tspan fill="${color}">${xml(tier === 'other' || !bareSavvy(a.type) ? a.type : tier)}</tspan><tspan class="s">  ${xml(meta.join('  ·  '))}</tspan></text>
-${steps && stepsW > 30 ? `<text class="t" x="42" y="49" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(fitText(steps, 11, stepsW))}</text>` : ''}
-<text class="s" x="${42 + barW}" y="49" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${stats}</text>
-<rect class="k" x="42" y="55" width="${barW}" height="4" rx="2"/><rect${progress === null ? ' class="m"' : ''} x="42" y="55" width="${fillW}" height="4" rx="2"${progress === null ? '' : ` fill="${color}"`}/>
-${statusMark(W - 8, 16, a.status, color)}
-<line class="ln" x1="0" y1="65.5" x2="${W}" y2="65.5"/>`,
-  )
+const rodandoSvg = (W: number, a: AgentRun, at: number): Desenho => {
+  const quieto = quietoHa(a, at)
+  const tempo = tempoDe(at - a.startedAt)
+  return desenho(W, 46, `${a.description}: ${quemEh(a)}, ${tempo}`,
+    caixaClawd(clawdAndando(a), 0, 8) + rotulo(40, 19, caber(a.description || a.type, 12.5, W - 42), 'tx', 12.5, 500) +
+    rotulo(40, 36, caber(quieto ?? quemEh(a), 11.5, W - 96), quieto ? 'at' : 'mu', 11.5) + rotulo(W - 2, 36, tempo, 'mu', 11.5, 400, 'end'))
 }
 
-const compactSvg = (W: number, list: AgentRun[], t: ReturnType<typeof totals>): string => {
-  const icons = [
-    ...list.filter(a => a.status === 'running').map(a => ({ k: costumeOf(a.type), c: colorOf(tierOf(a.type)), s: 'running' })),
-    ...list.filter(a => a.status !== 'running').map(a => ({ k: costumeOf(a.type), c: colorOf(tierOf(a.type)), s: a.status })),
-  ]
-  const fit = Math.max(1, Math.floor((W - 150) / 36))
-  const shown = icons.slice(0, fit)
-  const more = icons.length - shown.length
-  const body = shown
-    .map((ic, i) => crab(i * 36, 0, ic.k, false, ic.s === 'running') + (ic.s === 'running' ? `<circle class="live" cx="${i * 36 + 32}" cy="4" r="3" fill="${ic.c}"/>` : ''))
-    .join('')
-  const x = shown.length * 36 + (more ? 4 : 0)
-  return svg(
-    W,
-    32,
-    `${body}${more ? `<text class="s" x="${x}" y="21" font-family="${FONT}" font-size="12">+${more}</text>` : ''}
-<text class="s" x="${W}" y="21" text-anchor="end" font-family="${FONT}" font-size="12" font-variant-numeric="tabular-nums">≈${fmtCost(t.cost)} · ${fmtTokens(t.tokens)} · ${fmtTime(t.time)}</text>`,
-  )
+const concluidosSvg = (W: number, n: number, custo: string, aberto: boolean): Desenho =>
+  desenho(W, 36, `${n} ${tr().finishedWord(n)}, ${custo}`,
+    `<rect class="fd" y="3" width="${W}" height="30" rx="15"/>` + seta(16, 18, aberto) +
+    rotulo(30, 22, `${n} ${tr().finishedWord(n)}`, 'tx', 12, 500) + (W >= 300 ? rotulo(W - 14, 22, custo, 'mu', 11.5, 400, 'end') : ''))
+
+const feitoSvg = (W: number, a: AgentRun): Desenho => {
+  const marca =
+    a.status === 'failed'
+      ? '<path d="M6 10l6 8M12 10l-6 8" class="s-er" stroke-width="1.5" stroke-linecap="round"/>'
+      : a.status === 'stopped'
+        ? '<path d="M6 14h7" class="s-mu" stroke-width="1.5" stroke-linecap="round"/>'
+        : '<path d="M5 14l2.8 2.8 5.2-5.6" fill="none" class="s-ok" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+  const lado = a.status === 'stopped' ? tr().stopped : `${modeloCurto(a.model)} · ${duracao(a)}`
+  const ladoW = Math.ceil(largura(lado, 11.5)) + 8
+  return desenho(W, 28, `${a.description}: ${lado}`,
+    marca + rotulo(24, 18, caber(a.description || a.type, 12, W - 28 - ladoW), 'tx', 12) + rotulo(W - 4, 18, lado, 'mu', 11.5, 400, 'end'))
 }
 
-// --- terminal drawing: the same rows in text.
+const vazioSvg = (W: number): Desenho =>
+  desenho(W, 104, tr().empty, caixaClawd(CLAWD_VEZ, Math.round(W / 2 - 16), 22) + rotulo(W / 2, 76, tr().empty, 'mu', 12.5, 400, 'middle'))
 
-const ctxBar = (pct: number, width: number): string => {
-  const filled = Math.round((width * pct) / 100)
-  return '█'.repeat(filled) + '░'.repeat(Math.max(0, width - filled))
+const cabecaConversaSvg = (W: number, a: AgentRun, at: number): Desenho => {
+  const estado =
+    a.status === 'running'
+      ? quietoHa(a, at) ?? `${tr().workingFor} ${tempoDe(at - a.startedAt)}`
+      : a.status === 'failed'
+        ? tr().failedAgo(tempoDe(at - (a.endedAt ?? at)))
+        : a.status === 'stopped'
+          ? tr().stopped
+          : `${tr().doneWord} · ${duracao(a)}`
+  const clawd = a.status === 'running' ? clawdAndando(a) : a.status === 'failed' ? clawdCaido() : clawdParado(a)
+  return desenho(W, 46, `${a.description}: ${estado}`,
+    caixaClawd(clawd, 0, 8) + rotulo(40, 19, caber(a.description || a.type, 12.5, W - 42), 'tx', 12.5, 500) +
+    rotulo(40, 36, caber(estado, 11.5, W - 40 - 136), a.status === 'failed' ? 'er' : 'mu', 11.5) + rotulo(W - 2, 36, caber(`${nomeFuncao(a)} · ${modeloCurto(a.model)}`, 11.5, 132), 'mu', 11.5, 400, 'end'))
 }
 
-const STATUS_GLYPH: Record<string, string> = { running: '●', done: '✓', failed: '✗', planned: '◷' }
+// --- a conversa do agente, dentro do painel. Serve ao desktop, onde $.ui.view não existe: o app roda em
+// stream-json, sem visão principal, e a resposta é sempre "no main view here" (sondado em 31/10/2026 no binário
+// do app). $.session.messages({ agentId }) lê a conversa nesse modo, inclusive depois de o agente terminar.
+
+const MAX_MENSAGENS = 60
+const MAX_TEXTO = 6000
+
+// O que uma chamada de ferramenta fez, numa linha
+const resumoFerramenta = (tool: string, input: Record<string, unknown>): string => {
+  const valor = ['description', 'file_path', 'path', 'pattern', 'query', 'url', 'command', 'prompt'].map(k => input[k]).find(v => typeof v === 'string') as string | undefined
+  const nome = tool.replace(/^mcp__[^_]+(?:_[^_]+)*__/, '')
+  return valor ? `${nome} · ${valor.replace(/\s+/g, ' ').slice(0, 90)}` : nome
+}
+
+type LinhaConversa = { papel: 'pedido' | 'resposta' | 'ferramenta'; texto: string }
+
+const linhasDaConversa = (msgs: SessionMessage[]): { linhas: LinhaConversa[]; omitidas: number } => {
+  const todas: LinhaConversa[] = []
+  for (const m of msgs) {
+    const texto = m.text.trim()
+    if (texto) todas.push({ papel: m.role === 'user' ? 'pedido' : 'resposta', texto: texto.length > MAX_TEXTO ? texto.slice(0, MAX_TEXTO) + '…' : texto })
+    for (const u of m.toolUses) todas.push({ papel: 'ferramenta', texto: resumoFerramenta(u.tool, u.input) })
+  }
+  if (todas.length <= MAX_MENSAGENS) return { linhas: todas, omitidas: 0 }
+  // O pedido fica, porque diz o que o agente foi fazer; o resto é o final da conversa
+  return { linhas: [...todas.slice(0, 1), ...todas.slice(-(MAX_MENSAGENS - 1))], omitidas: todas.length - MAX_MENSAGENS }
+}
+
+// --- terminal: as mesmas linhas, em texto.
+
+const COR_BARRO = '#D97757'
 
 // Opens the agents pane, or closes it when it is up; true when it ends up open.
 async function togglePane($: EngineInterface): Promise<boolean> {
@@ -690,11 +501,11 @@ async function agentesInicio($: EngineInterface, options: { language?: unknown }
   lang = await detectLang($, options.language)
   await $.command.register({
     name: 'agents-info',
-    description: 'Show or hide the panel of subagents: running and finished, with model, context, cost and time',
+    description: 'Show or hide the panel of subagents: who failed, who is working and on what, what is finished',
   })
 
-  // Ticks the running agents' clocks; quiet when nothing runs.
-  $.clock.every(1000, () => {
+  // A tela só muda de minuto em minuto; um toque a cada 20 s basta e fica quieto quando nada roda.
+  $.clock.every(20_000, () => {
     void (async () => {
       const list = await read($, agents)
       if (!list.some(a => a.status === 'running')) return
@@ -710,6 +521,7 @@ async function agentesUso($: EngineInterface, e: any, result: any): Promise<void
   if (!agentId || !usage) return
 
   const model = usage.model || e.model
+  const at = await $.clock.now()
   await update($, agents, list =>
     list.map(a =>
       a.agentId !== agentId
@@ -717,21 +529,10 @@ async function agentesUso($: EngineInterface, e: any, result: any): Promise<void
         : {
             ...a,
             model,
-            effort: typeof e.effort === 'string' ? e.effort : a.effort,
             status: 'running',
             endedAt: undefined,
-            contextTokens:
-              (usage.input_tokens || 0) +
-              (usage.cache_read_input_tokens || 0) +
-              (usage.cache_creation_input_tokens || 0) +
-              (usage.output_tokens || 0),
-            contextMax: windowOf(model),
-            tokens:
-              a.tokens +
-              (usage.input_tokens || 0) +
-              (usage.output_tokens || 0) +
-              (usage.cache_read_input_tokens || 0) +
-              (usage.cache_creation_input_tokens || 0),
+            erroVisto: undefined,
+            ultimoPasso: at,
             costUsd: a.costUsd + costOf(model, usage),
             steps: a.steps + 1,
           },
@@ -743,6 +544,8 @@ async function agentesFimTurno($: EngineInterface, e: any): Promise<void> {
   const agentId = e.agentId
   if (agentId) {
     const at = await $.clock.now()
+    // Interromper é decisão de quem manda, não falha: `aborted` tem estado próprio
+    const status: AgentStatus = e.reason === 'answer' ? 'done' : e.reason === 'aborted' ? 'stopped' : 'failed'
     await update($, agents, list =>
       list.map(a => {
         if (a.agentId !== agentId) return a
@@ -750,24 +553,59 @@ async function agentesFimTurno($: EngineInterface, e: any): Promise<void> {
         const fallback = a.steps === 0 && e.usage
         return {
           ...a,
-          status: e.reason === 'answer' ? 'done' : 'failed',
+          status,
           endedAt: at,
-          ...(fallback && e.usage
-            ? {
-                model: e.usage.model || a.model,
-                tokens:
-                  e.usage.input_tokens +
-                  e.usage.output_tokens +
-                  e.usage.cache_read_input_tokens +
-                  e.usage.cache_creation_input_tokens,
-                costUsd: costOf(e.usage.model || a.model, e.usage),
-              }
-            : {}),
+          ...(fallback && e.usage ? { model: e.usage.model || a.model, costUsd: costOf(e.usage.model || a.model, e.usage) } : {}),
         }
       }),
     )
     await update($, now, () => at)
   }
+}
+
+// Abre a conversa do agente dentro do painel. Erro aberto foi visto: desce para os concluídos.
+async function abrirConversa($: EngineInterface, id: string): Promise<void> {
+  await marcarVisto($, id)
+  await update($, panel, p => ({ ...p, abertoId: id }))
+  // O que importa numa conversa é o fim dela. Fora do gesto vale: o painel é do próprio mod.
+  $.clock.after(350, () => {
+    void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {})
+  })
+}
+
+async function marcarVisto($: EngineInterface, id: string): Promise<void> {
+  await update($, agents, list => list.map(a => (a.id === id && a.status === 'failed' ? { ...a, erroVisto: true } : a)))
+}
+
+// Botão da linha, onde não há área invisível (terminal, editor, celular). É aqui que existe gesto da pessoa, e
+// no terminal $.ui.view troca a conversa principal de verdade; se recusar, a conversa abre no próprio painel.
+async function verAgente($: EngineInterface, a: AgentRun): Promise<void> {
+  if (a.agentId) {
+    // Os tipos instalados na pasta do mod são da 2.1.286, anteriores a $.ui.view
+    const shown = await ($.ui as unknown as { view: (v: { agentId: string }) => Promise<{ deny?: string }> }).view({ agentId: a.agentId })
+    if (!shown.deny) {
+      await marcarVisto($, a.id)
+      return
+    }
+  }
+  await abrirConversa($, a.id)
+}
+
+async function alternarConcluidos($: EngineInterface): Promise<void> {
+  const algumRodando = (await read($, agents)).some(a => a.status === 'running')
+  await update($, panel, p => ({ ...p, concluidosAbertos: !(p.concluidosAbertos ?? !algumRodando) }))
+}
+
+// A área invisível do painel: área sobre cada linha, key `agente:<id>`, e sobre a linha dos concluídos.
+// Devolve true quando o clique era daqui.
+async function cliqueNoPainel($: EngineInterface, elemento: string): Promise<boolean> {
+  if (elemento === 'concluidos') {
+    await alternarConcluidos($)
+    return true
+  }
+  if (!elemento.startsWith(AREA_AGENTE)) return false
+  await abrirConversa($, elemento.slice(AREA_AGENTE.length))
+  return true
 }
 
 // Hooks do painel de agentes (savvy-progress), chamados de dentro do register abaixo.
@@ -792,9 +630,7 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
         model: started.model,
         status: 'running',
         startedAt: at,
-        contextTokens: 0,
-        contextMax: windowOf(started.model),
-        tokens: 0,
+        ultimoPasso: at,
         costUsd: 0,
         steps: 0,
         round,
@@ -808,130 +644,110 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
     try {
     const s = tr()
     const ui = $.ui.resolve(e)
-    const { Box, Text, Button } = ui
+    const { Box, Text, Button, Markdown } = ui
     const list = await read($, agents)
     const p: Panel = await read($, panel)
     const at = Math.max(await read($, now), ...list.map(a => a.startedAt), 0)
+    const temSvg = e.surface !== 'terminal' && 'Svg' in ui
+    const W = Math.max(240, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
 
-    const running = list.filter(a => a.status === 'running').reverse()
-    const finished = list.filter(a => a.status !== 'running').reverse()
-    const t = totals(list, at)
-
-    const toggleCompact = (
-      <Button
-        key="compact"
-        label={p.isCompact ? s.expand : s.collapse}
-        plain
-        onPress={() => update($, panel, prev => ({ ...prev, isCompact: !prev.isCompact }))}
-      />
-    )
-    const toggleDone = (
-      <Button
-        key="done"
-        label={`${p.isDoneCollapsed ? '▸' : '▾'} ${s.finished} · ${finished.length}`}
-        plain
-        onPress={() => update($, panel, prev => ({ ...prev, isDoneCollapsed: !prev.isDoneCollapsed }))}
-      />
-    )
-    const isEmpty = list.length === 0
-    const summary = `≈${fmtCost(t.cost)}, ${fmtTokens(t.tokens)} ${s.tokensWord}, ${fmtTime(t.time)}`
-
-    if (e.surface === 'desktop' && 'Svg' in ui) {
-      const { Svg } = ui
-      const W = Math.max(240, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
-      const section = (key: string, text: string) => (
-        <Text key={key} dimColor>
-          {text}
-        </Text>
+    // A conversa de um agente, dentro do painel
+    const aberto = p.abertoId === undefined ? undefined : list.find(a => a.id === p.abertoId)
+    if (aberto) {
+      const lidas = aberto.agentId
+        ? await $.session.messages({ agentId: aberto.agentId }).catch(() => ({ deny: s.noConversation }))
+        : { deny: s.noConversation }
+      const { linhas, omitidas } = Array.isArray(lidas) ? linhasDaConversa(lidas) : { linhas: [], omitidas: 0 }
+      const { Svg } = ui as { Svg?: Els['Svg'] }
+      const cabeca = cabecaConversaSvg(W, aberto, at)
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Button key="voltar" label={`‹ ${s.pane}`} plain dimColor onPress={() => update($, panel, q => ({ ...q, abertoId: undefined }))} />
+          {temSvg && Svg ? (
+            <Svg source={cabeca.source} alt={cabeca.alt} width={cabeca.width} height={cabeca.height} />
+          ) : (
+            <Box flexDirection="column">
+              <Text bold wrap="truncate-end">{aberto.description || aberto.type}</Text>
+              <Text dimColor wrap="truncate-end">{quemEh(aberto)}</Text>
+            </Box>
+          )}
+          {!Array.isArray(lidas) && <Text dimColor>{'deny' in lidas ? lidas.deny : s.noConversation}</Text>}
+          {Array.isArray(lidas) && linhas.length === 0 && <Text dimColor>{s.noMessages}</Text>}
+          {linhas.map((l, i) => (
+            <Box key={`m${i}`} flexDirection="column">
+              {l.papel === 'pedido' && <Text dimColor>{s.asked}</Text>}
+              {l.papel === 'ferramenta' ? <Text dimColor wrap="truncate-end">{l.texto}</Text> : <Markdown text={l.texto} dimColor={l.papel === 'pedido'} />}
+              {i === 0 && omitidas > 0 && <Text dimColor>{s.omitted(omitidas)}</Text>}
+            </Box>
+          ))}
+        </Box>
       )
+    }
 
-      if (p.isCompact) {
-        return (
-          <Box flexDirection="column" gap={1}>
-            <Svg source={compactSvg(W, list, t)} alt={`${list.length} ${s.agentsCount}, ${summary}`} width={W} height={32} />
-            {toggleCompact}
+    const { rodando, erros, fim } = separar(list)
+    const abertos = p.concluidosAbertos ?? rodando.length === 0
+    const custo = custoTotal(list)
+    const nFim = fim.length
+
+    if (temSvg) {
+      const { Svg } = ui as { Svg: Els['Svg'] }
+      const pinta = (d: Desenho) => <Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />
+      // Linha clicável: a área invisível cobre o desenho, e sem Client (editor, celular) entra um botão de texto
+      const elements = ui as unknown as Els
+      const temArea = e.surface === 'desktop' && 'Client' in ui
+      const clicavel = (chave: string, d: Desenho, a?: AgentRun) =>
+        temArea ? (
+          <Box key={`l:${chave}`} position="relative" flexShrink={0} width={d.width}>
+            {pinta(d)}
+            <Box position="absolute" top={0} left={0} right={0} bottom={0}>
+              {elements.Client({ key: chave, module: './clawd.jsx', width: '100%', height: '100%' })}
+            </Box>
+          </Box>
+        ) : (
+          <Box key={`l:${chave}`} flexDirection="column" flexShrink={0}>
+            {pinta(d)}
+            {a ? (
+              <Button key={`b:${chave}`} label={s.openChat} plain dimColor onPress={() => verAgente($, a)} />
+            ) : (
+              <Button key={`b:${chave}`} label={abertos ? s.collapse : s.expand} plain dimColor onPress={() => alternarConcluidos($)} />
+            )}
           </Box>
         )
-      }
+      if (list.length === 0) return <Box flexDirection="column">{pinta(vazioSvg(W))}</Box>
       return (
         <Box flexDirection="column">
-          <Svg source={headerSvg(W, t)} alt={summary} width={W} height={HEADER_H} />
-          {toggleCompact}
-          {isEmpty && <Text dimColor>{s.empty}</Text>}
-          {running.length > 0 && section('h-run', `${s.running} · ${running.length}`)}
-          {running.map(a => (
-            <Svg key={a.id} source={agentSvg(W, a, at)} alt={`${a.description}: ${modelName(a.model)}, ${s.isRunning}`} width={W} height={66} />
-          ))}
-          {finished.length > 0 && toggleDone}
-          {!p.isDoneCollapsed &&
-            finished.map(a => (
-              <Svg key={a.id} source={agentSvg(W, a, at)} alt={`${a.description}: ${modelName(a.model)}, ${s.isFinished}`} width={W} height={66} />
-            ))}
+          {rodando.length > 0 && pinta(placarSvg(W, rodando.length))}
+          {erros.map(a => clicavel(AREA_AGENTE + a.id, erroSvg(W, a, at), a))}
+          {rodando.map(a => clicavel(AREA_AGENTE + a.id, rodandoSvg(W, a, at), a))}
+          {nFim > 0 && clicavel('concluidos', concluidosSvg(W, nFim, custo, abertos))}
+          {abertos && fim.map(a => clicavel(AREA_AGENTE + a.id, feitoSvg(W, a), a))}
         </Box>
       )
     }
 
-    // Terminal: the same content in text rows.
-    const cols = Math.max(24, e.props.bodyColumns || 40)
-    const barW = Math.max(6, Math.min(20, cols - 34))
-    const row = (a: AgentRun) => {
-      const tier = tierOf(a.type)
-      const color = colorOf(tier)
-      const ctx = ctxOf(a)
-      const progress = progressOf(a)
-      const model = a.effort ? `${modelName(a.model)} · ${a.effort}` : modelName(a.model)
-      const steps = a.stepTotal ? `${a.stepDone ?? 0}/${a.stepTotal}${a.stepNote ? ' ' + a.stepNote : ''} · ` : ''
-      return (
-        <Box key={a.id} flexDirection="column" marginBottom={1}>
-          <Box flexDirection="row" gap={1}>
-            <Text color={color}>▣</Text>
-            <Text bold wrap="truncate-end">
-              {a.description || a.type}
-            </Text>
-            <Text color={a.status === 'failed' ? 'red' : a.status === 'done' ? 'green' : color}>{STATUS_GLYPH[a.status]}</Text>
-          </Box>
-          <Text dimColor wrap="truncate-end">
-            {'  '}
-            {tier === 'other' ? a.type : tier} · {model}
-            {a.round > 1 ? ` · ${s.round} ${a.round}` : ''}
-          </Text>
-          <Text wrap="truncate-end">
-            {'  '}
-            {progress === null ? <Text dimColor>{ctxBar(ctx, barW)}</Text> : <Text color={color}>{ctxBar(progress * 100, barW)}</Text>}
-            <Text dimColor>
-              {' '}
-              {steps}ctx {ctx}% · {fmtTokens(a.contextTokens)} ≈{fmtCost(a.costUsd)} {fmtTime(elapsed(a, at))}
-            </Text>
-          </Text>
+    // Terminal: a mesma ordem, em texto. O botão é a linha inteira.
+    const linha = (a: AgentRun, glifo: string, cor: string, lado: string, nota?: string) => (
+      <Box key={a.id} flexDirection="column">
+        <Box flexDirection="row" justifyContent="space-between" gap={1}>
+          <Button key={`ver:${a.id}`} plain onPress={() => verAgente($, a)}>
+            <Text color={cor}>{glifo}</Text> {a.description || a.type}
+          </Button>
+          <Text dimColor>{lado}</Text>
         </Box>
-      )
-    }
-
+        {nota !== undefined && <Text dimColor wrap="truncate-end">{'  '}{nota}</Text>}
+      </Box>
+    )
+    const placar = [rodando.length ? `${rodando.length} ${s.working}` : '', nFim ? `${nFim} ${s.finishedWord(nFim)}` : '', list.length ? custo : ''].filter(Boolean).join(' · ')
     return (
       <Box flexDirection="column">
-        <Box flexDirection="row" justifyContent="space-between">
-          <Text dimColor wrap="truncate-end">
-            ≈{fmtCost(t.cost)} · {fmtTokens(t.tokens)} {s.tokensWord} · {fmtTime(t.time)}
-          </Text>
-          {toggleCompact}
-        </Box>
-        {p.isCompact ? (
-          <Text wrap="truncate-end">
-            {[...running, ...finished].map(a => (
-              <Text key={a.id} color={colorOf(tierOf(a.type))}>
-                {STATUS_GLYPH[a.status]}{' '}
-              </Text>
-            ))}
-          </Text>
-        ) : (
-          <Box flexDirection="column" marginTop={1}>
-            {isEmpty && <Text dimColor>{s.empty}</Text>}
-            {running.length > 0 && <Text dimColor>{s.running} · {running.length}</Text>}
-            {running.map(row)}
-            {finished.length > 0 && toggleDone}
-            {!p.isDoneCollapsed && finished.map(row)}
-          </Box>
+        {list.length === 0 && <Text dimColor>{s.empty}</Text>}
+        {erros.map(a => linha(a, '✗', 'red', s.failedAgo(tempoDe(at - (a.endedAt ?? at)))))}
+        {placar !== '' && <Text dimColor wrap="truncate-end">{placar}</Text>}
+        {rodando.map(a => linha(a, '●', COR_BARRO, tempoDe(at - a.startedAt), quietoHa(a, at) ?? quemEh(a)))}
+        {nFim > 0 && (
+          <Button key="concluidos" label={`${abertos ? '▾' : '▸'} ${nFim} ${s.finishedWord(nFim)}`} plain dimColor onPress={() => alternarConcluidos($)} />
         )}
+        {abertos && fim.map(a => linha(a, a.status === 'failed' ? '✗' : a.status === 'stopped' ? '–' : '✓', a.status === 'failed' ? 'red' : a.status === 'stopped' ? 'gray' : 'green', a.status === 'stopped' ? s.stopped : duracao(a)))}
       </Box>
     )
     } catch (err) {
@@ -1212,7 +1028,7 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
     return next(e)
   })
 
-  // Clique no Clawd da faixa: abre o painel de agentes
+  // Clique numa área invisível: Clawd da faixa, botões e linhas do painel de agentes
   on('ui.message', async ($, e, next) => {
     if (e.element === 'clawd') {
       void $.ui.open({ id: 'agentes-cezar', title: 'Agentes' })
@@ -1226,6 +1042,7 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
       pedirSalvar($)
       return {}
     }
+    if (await cliqueNoPainel($, e.element)) return {}
     return next(e)
   })
 
@@ -1787,7 +1604,7 @@ function untilReset(ms: number): string {
 // A faixa mostra a semana: uso em cápsulas e um contorno marcando onde o tempo está. Cápsula antes do
 // contorno = você está atrás do tempo e vai sobrar cota. O medidor de ritmo (palavra, barrinhas e
 // %/h) foi tirado em 30/10/2026: o Cezar viu que o contorno já diz isso. O que ficou de fora dali é o
-// câmbio de `fmtCost`: dólar por ponto, medido em 30/10/2026 em cinco trechos (23,3 a 24,2, igual antes
+// câmbio de `custoTotal`: dólar por ponto, medido em 30/10/2026 em cinco trechos (23,3 a 24,2, igual antes
 // e depois de virar Ultra). Soma o gasto de todas as sessões da conta, e a cada 4 pontos se recalibra.
 const GASTO_PREFIX = 'gasto:'
 const MARCOS_PREFIX = 'marcos:'

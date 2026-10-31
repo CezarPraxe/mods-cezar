@@ -1,6 +1,6 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 31/10/2026 · instalado (`painel-cezar@mods-cezar`, scope user, **versão 0.17.0**) · público em github.com/CezarPraxe/mods-cezar
+Atualizado: 31/10/2026 · instalada a **0.17.0**; a **0.18.0** (tela de agentes) está pronta no ramo `painel-018-tela-agentes`, sem commit e sem instalar · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
@@ -25,7 +25,14 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
 - **⚙ N** (0.15.0): aparece na faixa quando há comando, monitor, workflow ou agendamento rodando em segundo plano; clique lista o que é. Anota no `tool.call` (run_in_background, Monitor, Workflow, CronCreate, ScheduleWakeup) e tira quando chega o `<task-notification>` com status final (`session.append`), no TaskStop/CronDelete ou no fim do prazo do ScheduleWakeup. Subagente não conta: ele já faz o Clawd andar. O engine não dá lista de tarefas ao mod (o `background_tasks` é só dos hooks de settings).
 - Toast ao passar de 70% de contexto.
 - **Limites (5h e semana) por sessão** desde 0.13.3: antes a faixa usava a leitura mais nova de qualquer sessão, e com o CLI numa conta e o desktop em outra trocava o limite de uma pela outra. O engine não informa a conta, então cada sessão mostra só a própria.
-- **Fantasias por função** (0.14.0, uma por Sonnet): contador (relatorio-fatura, faturas), pesquisador, revisor/conferente, redator (terno grafite), advogado, cobrança (gravata verde e moeda), atendente (WhatsApp), executor, obra-longa (pá), animador (pintor), exceção (cientista). Regras em `tierOf` (a primeira que bate vence). Rascunhos e prévia (`elenco.png`, `c-*.mjs`, `render.mjs`) em `C:\Users\Cezar\claudecode\_archive\tmp\fantasias`.
+- **Painel de agentes (0.18.0, desenho A, Fila, aprovado em 31/10):** abre pelo Clawd. Ordem fixa: cartão de erro no topo, uma pílula `N trabalhando`, quem roda do mais antigo ao mais novo (nada pula), linha dos concluídos. Concluídos fechados com alguém rodando, abertos quando ninguém roda; a escolha da pessoa vale depois disso. Prévia do código real: `C:\Users\Cezar\praxedes\rascunho\painel-previa\agentes\final.html`.
+  - **Três cores:** barro = rodando, verde = concluído, vermelho = erro. O resto é neutro, na paleta da pílula. Saíram as 17 cores por função: Revisor vermelho parecia erro.
+  - **Tempo sem segundos** (`11 min`, `1h20`, `agora`): a imagem da linha só muda de minuto em minuto, e a animação corre sem reiniciar. O relógio do painel bate a cada 20 s.
+  - **Custo só no total da sessão**, na linha dos concluídos (`cerca de 0,9% da semana`). Saíram tokens, ctx, barra, `% sem` por agente e o Recolher.
+  - **Sem novidade:** `ultimoPasso` grava a hora do último passo; 5 min parado vira aviso âmbar. Obra longa esperando build também acende: é aviso, não erro.
+  - **Fim do agente:** `aborted` vira `stopped` (interrompido por ele), `refusal` e `error` viram erro. Erro fica no topo até ser aberto (`erroVisto`) e aí desce para os concluídos.
+  - **Fantasias por função:** contador, pesquisador, revisor, redator, advogado, cobrança, atendente, executor, obra longa, animador, exceção, explorador; `other` é o Clawd sem nada. Redesenhadas em 31/10 sobre `CLAWD_TRABALHANDO`, **sem garra**: nada segura nada, o objeto fica encostado ou no chão. Regras em `funcaoDe`. Andam na metade da velocidade da faixa, cada uma na sua fase (`faseDe`, pelo id).
+  - **Clique na linha abre a conversa do agente.** No desktop o clique vem da área invisível (`clawd.jsx`, key `agente:<id>`, hook `ui.message`, `cliqueNoPainel`) e a conversa abre **dentro do painel**, lida por `$.session.messages({ agentId })`, com botão de voltar. No terminal e no editor a linha tem Button: `verAgente` chama `$.ui.view`, e se recusar cai na conversa do painel.
 
 ## Decisões
 - Português, mínimo de texto, visual uniforme: chip com fundo neutro, cor só no número e na barra. Horário de Rondônia (UTC−4).
@@ -43,6 +50,9 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
   - instalar o mod prompt-cache-control (davila7). Dele só aproveitamos as ideias do ⏱; a faixa dele é longa, em inglês, e duplicaria o nosso medidor.
 - Varredura de mods no X e no catálogo davila7 (06/10): o Cezar só quis o "Clawd em pânico" (ideia do @nvr0x5). image-view e secret-redactor foram sugeridos e não pedidos.
 - **Painel de agentes = código do savvy-progress (MIT, johnnyvizz) trazido para dentro** em 10/10 (0.11.0), com a tradução e o custo em "% 5h". Tirados: faixa de progresso do savvy-flow, ferramentas `progress`/`step`, tarefas planejadas. O `savvy-progress@claude-kit` ficou **desabilitado** (não desinstalado). Crédito em `LICENSE-savvy-progress` e no topo do register.tsx.
+- **`$.ui.view` não existe no desktop (provado em 31/10):** o app roda o programa em `--output-format stream-json`, e só o modo terminal (`ReplSessionScope`) tem visão principal. Uma sonda com o binário do próprio app respondeu `{ deny: "no main view here" }`; essa checagem vem antes da de gesto, então Button nenhum resolve lá. Em qualquer modo, o gesto só vale de `ui.press`, `ui.input` e `ui.select` (função `kI` do engine): `ui.message` da área invisível nunca vale. Na mesma sonda, `$.session.messages({ agentId })` leu a conversa de um agente já terminado, com `$.agent.list()` vazio. Por isso a conversa abre no painel.
+- **`Client` só carrega escrito como `elements.Client({ ..., module: './clawd.jsx' })`.** Em JSX, ou com outro nome de variável, o caminho não é reescrito, e o engine recusa: "the plugin loaded no surface module at that path". O validate não pega; o `claude plugin test` pega.
+- Os tipos em `.claude-plugin\types` são da 2.1.286, mais velhos que o engine: `$.ui.view`, `ui.post` do kit e o evento `ui.view` precisam de cast. `claude plugin test` não tem `$.state`: `hooks\agentes.test.tsx` guarda o estado nos hooks `state.get`/`state.set` e remonta o painel para ver a tela nova.
 - **O engine aceita um só módulo de hooks por plugin** e recusa dois hooks sem filtro no mesmo evento: por isso tudo está num arquivo, e session.start/turn.step/turn.complete/session.measure foram fundidos.
 - Preço e janela de modelo (`PRICES`/`windowOf` no register.tsx) conferidos na página oficial em 10/10: janela de 1M em tudo menos Haiku 4.x; Haiku 5.5 tem preço próprio e outro acima de 100k de prompt. O engine só informa a janela da conversa principal, então a tabela é necessária: rever a cada modelo novo.
 
@@ -61,7 +71,8 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
 - Engine 2.1.295 trouxe `$.ui.notify` (notificação do Windows), `$.ui.selection` (texto selecionado) e `ui.fault`. O painel direito novo do app (Ambiente, Contexto, Conectores, Saídas) não aceita mod.
 
 ## Pendente / próximo passo
-- **Próximo passo:** o painel de Agentes ficou vazio ("painel-cezar has not drawn in this pane") no chat "PWA receitas e estoque" em 15/10, com subagente rodando. No teste isolado ele desenha. A 0.14.1 mostra o erro em vermelho no próprio painel: o Cezar fecha o painel, clica no Clawd (ou arquiva/desarquiva) e manda o print do texto vermelho. Com ele, corrigir a causa.
+- **Próximo passo:** instalar a 0.18.0 e conferir no app: clique nas linhas, conversa dentro do painel, área cobrindo a linha inteira, rolagem até o fim da conversa, animação sem reiniciar.
+- O painel de Agentes ficou vazio ("painel-cezar has not drawn in this pane") no chat "PWA receitas e estoque" em 15/10, com subagente rodando. No teste isolado ele desenha. A 0.14.1 mostra o erro em vermelho no próprio painel: o Cezar fecha o painel, clica no Clawd (ou arquiva/desarquiva) e manda o print do texto vermelho. Com ele, corrigir a causa.
 - **Ideias oferecidas, sem resposta do Cezar:** notificação do Windows (subagente terminou, Clawd em pânico, 5h > 90%) e a lista de tarefas (TodoWrite/TaskCreate) na faixa ou no painel.
 - **Conferido no app:** 💾; hora injetada; 📦 (0.13.1); fantasias por função no painel (0.14.0, "amei"); limites por sessão (0.13.3, a faixa bate com o painel do desktop).
 - **Falta ver:** o ⚙ aparecendo e sumindo sozinho quando a tarefa termina (os ids saem do texto do resultado e do aviso: se não sumir, é o formato do id); o pânico de verdade (só com permissão ligada ou pergunta com opções); o Clawd da faixa andando com subagente; se SDR e Estagiário acertam a saudação; o toast de cache frio.

@@ -255,7 +255,7 @@ const norm = (s: string): string => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, 
 const fmtTokens = (n: number): string =>
   n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
 
-// Cezar: custo em % da semana, pelo câmbio da seção "Ritmo da semana".
+// Cezar: custo em % da semana, pelo câmbio da seção "Semana".
 const USD_POR_PONTO = 23.5
 let usdPorPonto = USD_POR_PONTO
 const fmtCost = (usd: number): string => {
@@ -856,7 +856,6 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
       return (
         <Box flexDirection="column">
           <Svg source={headerSvg(W, t)} alt={summary} width={W} height={HEADER_H} />
-          {ritmo && <Text dimColor>{ritmoTexto()}</Text>}
           {toggleCompact}
           {isEmpty && <Text dimColor>{s.empty}</Text>}
           {running.length > 0 && section('h-run', `${s.running} · ${running.length}`)}
@@ -916,7 +915,6 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
           </Text>
           {toggleCompact}
         </Box>
-        {ritmo && <Text dimColor>{ritmoTexto()}</Text>}
         {p.isCompact ? (
           <Text wrap="truncate-end">
             {[...running, ...finished].map(a => (
@@ -1081,13 +1079,30 @@ const DESKTOP_ROW_GAP = 0
 // com brilho, a célula atual contornada (pin 945967096751896278). Altura de uma linha só.
 const PILULA_ALTURA = 24
 const CELULAS = 14
-const BARRAS_RITMO = 12
+// A onda: px por segundo e quadros por segundo (animação por passos, como cinema)
+const ONDA_VELOCIDADE = 9
+const ONDA_FPS = 24
+// Cor da luz por tema: [crista clara, brasa] no claro e no escuro. Nunca branco puro: cada luz puxa o tom da cápsula
+const ONDA_TONS: Record<string, [string, string, string, string]> = {
+  success: ['#A6EBC3', '#58C088', '#EEF9F1', '#BCE8C8'],
+  warning: ['#F8D388', '#DCA33C', '#FFF4DE', '#F8D695'],
+  error: ['#FFB9AD', '#EE7468', '#FFE9E4', '#FFAA9E'],
+  none: ['#CFCBC2', '#94918A', '#F1EFE9', '#BDBAB1'],
+}
+type OndaPecas = { halo: string; luz: string; contorno: string }
+const ondaGuardada = new Map<string, OndaPecas>()
+// Cada cápsula responde um pouco diferente, como filamentos de verdade; a diferença é pequena para não virar padrão
+const ONDA_GRAOS = [0.97, 1, 0.91, 1.04, 0.95, 1.02, 0.9, 1.03, 0.96, 1, 0.92, 1.05, 0.94, 1]
+// Quanto o contorno do tempo sente a luz, pela distância em células da última cápsula cheia
+const ONDA_ALCANCE_CONTORNO = [1, 0.5, 0.26, 0.12]
 const PILULA_FONTE = "'Segoe UI',system-ui,-apple-system,sans-serif"
 const PILULA_CSS = `<style>
 .fd{fill:#E9E7E1}.tx{fill:#2B2A27}.mu{fill:#6F6C65}.vz{fill:#000;fill-opacity:.11}.success{fill:#2F8F5B}.warning{fill:#B07C1E}.error{fill:#CF4A40}.none{fill:#6F6C65}
 .a-vz{stroke:#000;stroke-opacity:.11}.a-tx{stroke:#2B2A27}.a-mu{stroke:#6F6C65}.a-success{stroke:#2F8F5B}.a-warning{stroke:#B07C1E}.a-error{stroke:#CF4A40}
+.p-success{stop-color:#2F8F5B}.p-warning{stop-color:#B07C1E}.p-error{stop-color:#CF4A40}.p-none{stop-color:#6F6C65}
 @media (prefers-color-scheme: dark){.fd{fill:#2D2C2A}.tx{fill:#ECEAE3}.mu{fill:#8F8C83}.vz{fill:#fff}.success{fill:#8CC29A}.warning{fill:#E3B566}.error{fill:#E8776C}.none{fill:#8F8C83}
-.a-vz{stroke:#fff}.a-tx{stroke:#ECEAE3}.a-mu{stroke:#8F8C83}.a-success{stroke:#8CC29A}.a-warning{stroke:#E3B566}.a-error{stroke:#E8776C}}
+.a-vz{stroke:#fff}.a-tx{stroke:#ECEAE3}.a-mu{stroke:#8F8C83}.a-success{stroke:#8CC29A}.a-warning{stroke:#E3B566}.a-error{stroke:#E8776C}
+.p-success{stop-color:#8CC29A}.p-warning{stop-color:#E3B566}.p-error{stop-color:#E8776C}.p-none{stop-color:#8F8C83}}
 </style>`
 // The terminal draws the time marker in this color
 const MARKER_COLOR = 'cyan'
@@ -1096,15 +1111,12 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
   registerAgentes(on)
   // ---- Clawd e relógio ----
   let relogio: Timer | undefined
-  let quadros: Timer | undefined
 
   on('session.start', async ($, e, next) => {
     await inicio($)
     await agentesInicio($, options)
     relogio?.cancel()
     relogio = $.clock.every(60000, () => $.ui.invalidate('ui.render'))
-    quadros?.cancel()
-    quadros = $.clock.every(CLAWD_QUADRO_MS, () => passarQuadroClawd($))
     return next(e)
   })
 
@@ -1206,6 +1218,14 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
       void $.ui.open({ id: 'agentes-cezar', title: 'Agentes' })
       return {}
     }
+    if (e.element === 'compactar') {
+      pedirCompactar($)
+      return {}
+    }
+    if (e.element === 'salvar') {
+      pedirSalvar($)
+      return {}
+    }
     return next(e)
   })
 
@@ -1213,7 +1233,7 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
     context = e.context
     // A fresh measurement, including an empty one when the account's windows went away
     if (e.changed.includes('rateLimits')) await remember($, e.rateLimits)
-    await atualizarRitmo($).catch(() => {})
+    await atualizarSemana($).catch(() => {})
     $.ui.invalidate('ui.render')
     return next(e)
   })
@@ -1249,10 +1269,9 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
       meters.push(readLimit(limit, now))
     }
     for (const m of meters) {
-      m.value = valueText(m, e.surface)
+      m.value = valueText(m)
       m.reset = resetText(m, now)
     }
-    const ritmoPill = ritmoMeter(elements, e.surface)
     const cachePill = cacheMeter(elements, e.surface, now)
     const subRodando = (await read($, agents)).some((a) => a.status === 'running')
     const clawdAgora = clawdSvgAgora(subRodando)
@@ -1266,7 +1285,6 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
       rowGap: e.surface !== 'terminal' ? 1 : 0,
       children: [
         ...meters.map((m) => meter(elements, gauge, m)),
-        ...(ritmoPill ? [ritmoPill] : []),
         ...(cachePill ? [cachePill] : []),
         ...(() => {
           const ativos = fundoAtivo(now)
@@ -1279,39 +1297,17 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
             }),
           ]
         })(),
-        e.surface === 'terminal'
-          ? elements.Button({ key: 'agentes', label: 'sub', onPress: () => void $.ui.open({ id: 'agentes-cezar', title: 'Agentes' }) })
-          : elements.Box({
-              key: 'clawd',
-              position: 'relative',
-              children: [
-                elements.Svg({
-                  source: clawdAgora.source,
-                  alt: clawdAgora.alt,
-                  width: CLAWD_LARGURA,
-                  height: clawdAgora.altura,
-                }),
-                elements.Box({ key: 'clawd-clique', position: 'absolute', top: 0, left: 0, children: [elements.Client({ key: 'clawd', module: './clawd.jsx', width: 3, height: 1 })] }),
-              ],
-            }),
-        elements.Button({
-          key: 'compactar',
-          label: '📦',
-          onPress: () => {
-            $.ui.toast('Compactando…')
-            compactar($)
-          },
-        }),
-        elements.Button({
-          key: 'salvar',
-          label: '💾',
-          onPress: () => {
-            if (compactarDepois) { $.ui.toast('Já está salvando…'); return }
-            compactarDepois = true
-            $.ui.toast('Salvando o ESTADO.md… depois compacta sozinho.')
-            void $.prompt.submit({ text: PROMPT_ESTADO, asUser: true }).catch(() => {})
-          },
-        }),
+        ...(e.surface === 'desktop'
+          ? [
+              iconeClicavel(elements, 'clawd', clawdAgora.source, clawdAgora.alt, CLAWD_LARGURA, CLAWD_ALTURA),
+              iconeClicavel(elements, 'compactar', ICONE_COMPACTAR, 'compactar', 24, 24),
+              iconeClicavel(elements, 'salvar', ICONE_SALVAR, 'salvar o estado e compactar', 24, 24),
+            ]
+          : [
+              elements.Button({ key: 'agentes', label: 'sub', onPress: () => void $.ui.open({ id: 'agentes-cezar', title: 'Agentes' }) }),
+              elements.Button({ key: 'compactar', label: '📦', onPress: () => pedirCompactar($) }),
+              elements.Button({ key: 'salvar', label: '💾', onPress: () => pedirSalvar($) }),
+            ]),
       ],
     })
     // Keep what the mods after this one draw in the band
@@ -1421,7 +1417,7 @@ function readLimit(limit: SessionRateLimit, now: number): Meter {
     const feitas = horasUteis(resetsAtMs - SEMANA_MS, now)
     elapsed = clamp((feitas / (feitas + horasUteis(now, resetsAtMs))) * 100)
   }
-  return { label, semRotulo: window?.semRotulo === true, used: limit.percentUsed, elapsed, resetsAt: resetsAtMs, showsClock: window?.showsClock === true, fecha: ehSemana ? ritmo?.fecha : null, ehSemana }
+  return { label, semRotulo: window?.semRotulo === true, used: limit.percentUsed, elapsed, resetsAt: resetsAtMs, showsClock: window?.showsClock === true, fecha: ehSemana ? previsaoSemana(limit.percentUsed, resetsAtMs, now) : null, ehSemana }
 }
 
 // Green, yellow or red by how far usage runs ahead of the time gone in its window
@@ -1435,10 +1431,8 @@ function statusOf(used: number, elapsed: number | null): Status {
   return 'success'
 }
 
-function valueText({ used, fecha }: Meter, surface: string): string {
-  if (typeof used !== 'number') return '—'
-  // No desktop a pílula da semana desenha a previsão à parte, em outra cor
-  return Math.round(used) + '%' + (fecha == null || surface !== 'terminal' ? '' : ' → ' + Math.round(fecha) + '%')
+function valueText({ used }: Meter): string {
+  return typeof used === 'number' ? Math.round(used) + '%' : '—'
 }
 
 function resetText({ resetsAt, showsClock }: Meter, now: number): string {
@@ -1461,7 +1455,7 @@ function meter(els: Els, gauge: string, { label, semRotulo, used, elapsed, value
   const style = known ? { color: status as Status, bold: true } : { dimColor: true }
 
   if (gauge === 'svg') {
-    const p = ehSemana ? pilulaSemana(known ? used : 0, elapsed, status, fecha, reset ?? '') : pilulaAnel(label, known ? used : 0, status, value as string, reset ?? '')
+    const p = ehSemana ? pilulaSemana(known ? used : 0, elapsed, status, reset ?? '') : pilulaAnel(label, known ? used : 0, status, value as string, reset ?? '')
     return desenharPilula(els, 'meter-' + label, p)
   }
 
@@ -1505,79 +1499,61 @@ function horaRondonia(ms: number): string {
   return `Agora em Rondônia (UTC−4): ${DIAS_SEMANA[d.getUTCDay()]}, ${dois(d.getUTCDate())}/${dois(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}, ${dois(h)}:${dois(d.getUTCMinutes())}.`
 }
 
-// O Clawd oficial: grade 12x8 do ClawdMoji (github.com/afspies/ClawdMoji), 2 px por quadrado.
-// Três estados, animados trocando o quadro a cada CLAWD_QUADRO_MS (o SVG vai como imagem, de fundo
-// transparente; o modo interativo, que roda animação SMIL, abre uma moldura de fundo branco):
-//   trabalhando: perninhas andando · vez: parado, pisca de vez em quando · panico: vermelho, olho
-//   arregalado, tremendo, erguendo um "!" amarelo (precisa de permissão ou de resposta)
-const CLAWD_QUADRO_MS = 400
-const CLAWD_PISCA_A_CADA = 10
-const CLAWD_PANICO_ALTURA = 28
-const CLAWD_LARGURA = 26
+// O Clawd oficial: grade 12x8 do ClawdMoji (github.com/afspies/ClawdMoji), sem garra, com luz, olho e sombra
+// refeitos em 30/10/2026. Cada estado anima sozinho por CSS dentro do SVG, sem redesenhar a faixa:
+//   vez: parado, respira, olha e pisca · trabalhando: anda · panico: vermelho, treme e ergue um "!"
+//   (precisa de permissão ou de resposta). Não usar Svg isInteractive: a moldura tem fundo branco.
+const CLAWD_LARGURA = 28
+const CLAWD_ALTURA = 24
+const CLAWD_VEZ = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="24" viewBox="0 0 28 24" shape-rendering="crispEdges"><style>.vc{animation:vc 4s steps(1) infinite}@keyframes vc{55%{transform:translateY(1px)}}.vg{animation:vg 4s ease-in-out infinite}@keyframes vg{0%,100%{opacity:.56}55%{opacity:.42}}.vo{animation:vo 8s steps(1) infinite}@keyframes vo{0%{opacity:1}20.000%{opacity:0}23.500%{opacity:1}70.000%{opacity:0}73.000%{opacity:1}74.500%{opacity:0}77.500%{opacity:1}}.vm{opacity:0;animation:vm 8s steps(1) infinite}@keyframes vm{0%{opacity:0}20.000%{opacity:1}21.000%{opacity:0}22.500%{opacity:1}23.500%{opacity:0}70.000%{opacity:1}71.000%{opacity:0}72.000%{opacity:1}73.000%{opacity:0}74.500%{opacity:1}75.500%{opacity:0}76.500%{opacity:1}77.500%{opacity:0}}.vf{opacity:0;animation:vf 8s steps(1) infinite}@keyframes vf{0%{opacity:0}21.000%{opacity:1}22.500%{opacity:0}71.000%{opacity:1}72.000%{opacity:0}75.500%{opacity:1}76.500%{opacity:0}}.vl{animation:vl 8s steps(1) infinite}@keyframes vl{0%{transform:none}40.000%{transform:translateX(1px)}55.000%{transform:none}}@media (prefers-reduced-motion:reduce){.vc,.vg,.vo,.vm,.vf,.vl{animation:none}}</style><defs><linearGradient id="cvv" gradientUnits="userSpaceOnUse" x1="0" y1="6" x2="0" y2="18"><stop offset="0" stop-color="#EC9A7E"/><stop offset=".2" stop-color="#E28669"/><stop offset=".52" stop-color="#DA7758"/><stop offset=".84" stop-color="#CF6C4F"/><stop offset="1" stop-color="#BC5D43"/></linearGradient><linearGradient id="cvh" gradientUnits="userSpaceOnUse" x1="2" y1="0" x2="26" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".06"/><stop offset=".42" stop-color="#fff" stop-opacity="0"/><stop offset=".62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".16"/></linearGradient><linearGradient id="cvr" gradientUnits="userSpaceOnUse" x1="7" y1="0" x2="21" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset=".55" stop-color="#fff" stop-opacity=".14"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><linearGradient id="cvl" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="22"><stop offset="0" stop-color="#A44F38"/><stop offset=".45" stop-color="#BE6146"/><stop offset="1" stop-color="#CC7053"/></linearGradient><filter id="cvb" filterUnits="userSpaceOnUse" x="-4" y="-4" width="36" height="32"><feGaussianBlur stdDeviation="1.6"/></filter><filter id="cvm" filterUnits="userSpaceOnUse" x="-4" y="-4" width="36" height="32"><feGaussianBlur stdDeviation=".7"/></filter><filter id="cvn" filterUnits="userSpaceOnUse" x="-4" y="14" width="36" height="14"><feGaussianBlur stdDeviation="1"/></filter><filter id="cvs" filterUnits="userSpaceOnUse" x="0" y="0" width="28" height="24"><feGaussianBlur stdDeviation="1.3"/></filter><clipPath id="cvc"><path d="M6 6h16v12H6z"/></clipPath></defs><g filter="url(#cvb)" class="vg"><path fill="#DA7758" d="M6 6h16v12H6zM2 10h4v4H2zM22 10h4v4h-4zM6 18h2v4h-2zM10 18h2v4h-2zM16 18h2v4h-2zM20 18h2v4h-2z"/></g><g filter="url(#cvn)" fill="#000" fill-opacity=".3" shape-rendering="auto"><g><ellipse cx="10" cy="22.3" rx="7" ry="1.3"/></g><g><ellipse cx="18" cy="22.3" rx="7" ry="1.3"/></g></g><rect x="6" y="18" width="2" height="4" fill="url(#cvl)"/><rect x="10" y="18" width="2" height="4" fill="url(#cvl)"/><rect x="16" y="18" width="2" height="4" fill="url(#cvl)"/><rect x="16" y="18" width="2" height="4" fill="#000" fill-opacity=".09"/><rect x="20" y="18" width="2" height="4" fill="url(#cvl)"/><rect x="20" y="18" width="2" height="4" fill="#000" fill-opacity=".09"/><g class="vc"><path d="M2 10h4v4H2z" fill="url(#cvv)"/><path d="M2 10h4v4H2z" fill="url(#cvh)"/><rect x="2" y="10" width="4" height="1" fill="#fff" fill-opacity=".2"/><rect x="2" y="13" width="4" height="1" fill="#000" fill-opacity=".1"/><path d="M22 10h4v4h-4z" fill="url(#cvv)"/><path d="M22 10h4v4h-4z" fill="url(#cvh)"/><rect x="22" y="10" width="4" height="1" fill="#fff" fill-opacity=".1"/><rect x="22" y="13" width="4" height="1" fill="#000" fill-opacity=".1"/><path d="M6 6h16v12H6z" fill="url(#cvv)"/><path d="M6 6h16v12H6z" fill="url(#cvh)"/><g clip-path="url(#cvc)"><ellipse cx="10.5" cy="7.5" rx="5.5" ry="2.6" fill="#fff" opacity=".15" filter="url(#cvs)"/></g><rect x="7" y="6" width="14" height="1" fill="url(#cvr)"/><rect x="6" y="10" width="1" height="4" fill="#000" fill-opacity=".06"/><rect x="21" y="10" width="1" height="4" fill="#000" fill-opacity=".08"/><g class="vo"><g class="vl"><rect x="8" y="8" width="2" height="3" fill="#1F1E1D"/><rect x="8" y="8" width="1" height="1" fill="#fff"/><rect x="18" y="8" width="2" height="3" fill="#1F1E1D"/><rect x="18" y="8" width="1" height="1" fill="#fff"/></g></g><g class="vm"><rect x="8" y="8" width="2" height="3" fill="#1F1E1D"/><rect x="8" y="8" width="1" height="1" fill="#fff"/><rect x="18" y="8" width="2" height="3" fill="#1F1E1D"/><rect x="18" y="8" width="1" height="1" fill="#fff"/><rect x="8.0" y="8" width="2" height="1" fill="#E38F72"/><rect x="8" y="9" width="2" height="1" fill="#5B2A1E"/><rect x="18.0" y="8" width="2" height="1" fill="#E38F72"/><rect x="18" y="9" width="2" height="1" fill="#5B2A1E"/></g><g class="vf"><rect x="8" y="8" width="2" height="2" fill="#E38F72"/><rect x="7" y="10" width="4" height="1" fill="#5B2A1E"/><rect x="18" y="8" width="2" height="2" fill="#E38F72"/><rect x="17" y="10" width="4" height="1" fill="#5B2A1E"/></g></g></svg>`
+const CLAWD_TRABALHANDO = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="24" viewBox="0 0 28 24" shape-rendering="crispEdges"><style>.tg{animation:tg 2s ease-in-out infinite}@keyframes tg{0%,100%{opacity:.4}50%{opacity:.62}}.te{animation:tp 1s steps(1) infinite}.td{animation:tq 1s steps(1) infinite -.5s}@keyframes tp{0%{transform:translateY(-1px)}12.5%{transform:translate(1px,-2px)}25%{transform:translateY(-1px)}37.5%{transform:none}}@keyframes tq{0%{transform:translateY(-1px)}12.5%{transform:translate(-1px,-2px)}25%{transform:translateY(-1px)}37.5%{transform:none}}.se{animation:ts 1s steps(1) infinite}.sd{animation:ts 1s steps(1) infinite -.5s}@keyframes ts{0%{opacity:.7}12.5%{opacity:.45}25%{opacity:.7}37.5%{opacity:1}}.tb{animation:tb 1s steps(1) infinite}@keyframes tb{0%{transform:none}12.5%{transform:translate(1px,-1px)}25%{transform:none}37.5%{transform:translateY(1px)}50%{transform:none}62.5%{transform:translate(-1px,-1px)}75%{transform:none}87.5%{transform:translateY(1px)}}.ta{animation:ta .5s steps(1) infinite}@keyframes ta{0%{transform:none}25%{transform:translateY(1px)}50%{transform:none}75%{transform:translateY(-1px)}}.to{animation:to 3s steps(1) infinite}@keyframes to{0%{transform:translateX(1px)}50%{transform:translateX(-1px)}}@media (prefers-reduced-motion:reduce){.tg,.te,.td,.se,.sd,.tb,.ta,.to{animation:none}}</style><defs><linearGradient id="ctv" gradientUnits="userSpaceOnUse" x1="0" y1="6" x2="0" y2="18"><stop offset="0" stop-color="#EC9A7E"/><stop offset=".2" stop-color="#E28669"/><stop offset=".52" stop-color="#DA7758"/><stop offset=".84" stop-color="#CF6C4F"/><stop offset="1" stop-color="#BC5D43"/></linearGradient><linearGradient id="cth" gradientUnits="userSpaceOnUse" x1="2" y1="0" x2="26" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".06"/><stop offset=".42" stop-color="#fff" stop-opacity="0"/><stop offset=".62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".16"/></linearGradient><linearGradient id="ctr" gradientUnits="userSpaceOnUse" x1="7" y1="0" x2="21" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset=".55" stop-color="#fff" stop-opacity=".14"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><linearGradient id="ctl" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="22"><stop offset="0" stop-color="#A44F38"/><stop offset=".45" stop-color="#BE6146"/><stop offset="1" stop-color="#CC7053"/></linearGradient><filter id="ctb" filterUnits="userSpaceOnUse" x="-4" y="-4" width="36" height="32"><feGaussianBlur stdDeviation="1.6"/></filter><filter id="ctm" filterUnits="userSpaceOnUse" x="-4" y="-4" width="36" height="32"><feGaussianBlur stdDeviation=".7"/></filter><filter id="ctn" filterUnits="userSpaceOnUse" x="-4" y="14" width="36" height="14"><feGaussianBlur stdDeviation="1"/></filter><filter id="cts" filterUnits="userSpaceOnUse" x="0" y="0" width="28" height="24"><feGaussianBlur stdDeviation="1.3"/></filter><clipPath id="ctc"><path d="M6 6h16v12H6z"/></clipPath></defs><g filter="url(#ctb)" class="tg"><path fill="#DA7758" d="M6 6h16v12H6zM2 10h4v4H2zM22 10h4v4h-4zM6 18h2v4h-2zM10 18h2v4h-2zM16 18h2v4h-2zM20 18h2v4h-2z"/></g><g filter="url(#ctn)" fill="#000" fill-opacity=".3" shape-rendering="auto"><g class="se"><ellipse cx="10" cy="22.3" rx="7" ry="1.3"/></g><g class="sd"><ellipse cx="18" cy="22.3" rx="7" ry="1.3"/></g></g><g class="te"><rect x="6" y="18" width="2" height="4" fill="url(#ctl)"/><rect x="10" y="18" width="2" height="4" fill="url(#ctl)"/></g><g class="td"><rect x="16" y="18" width="2" height="4" fill="url(#ctl)"/><rect x="16" y="18" width="2" height="4" fill="#000" fill-opacity=".09"/><rect x="20" y="18" width="2" height="4" fill="url(#ctl)"/><rect x="20" y="18" width="2" height="4" fill="#000" fill-opacity=".09"/></g><g class="tb"><g class="ta"><path d="M2 10h4v4H2z" fill="url(#ctv)"/><path d="M2 10h4v4H2z" fill="url(#cth)"/><rect x="2" y="10" width="4" height="1" fill="#fff" fill-opacity=".2"/><rect x="2" y="13" width="4" height="1" fill="#000" fill-opacity=".1"/><path d="M22 10h4v4h-4z" fill="url(#ctv)"/><path d="M22 10h4v4h-4z" fill="url(#cth)"/><rect x="22" y="10" width="4" height="1" fill="#fff" fill-opacity=".1"/><rect x="22" y="13" width="4" height="1" fill="#000" fill-opacity=".1"/></g><path d="M6 6h16v12H6z" fill="url(#ctv)"/><path d="M6 6h16v12H6z" fill="url(#cth)"/><g clip-path="url(#ctc)"><ellipse cx="10.5" cy="7.5" rx="5.5" ry="2.6" fill="#fff" opacity=".15" filter="url(#cts)"/></g><rect x="7" y="6" width="14" height="1" fill="url(#ctr)"/><rect x="6" y="10" width="1" height="4" fill="#000" fill-opacity=".06"/><rect x="21" y="10" width="1" height="4" fill="#000" fill-opacity=".08"/><g class="to"><rect x="8" y="8" width="2" height="3" fill="#1F1E1D"/><rect x="8" y="8" width="2" height="1" fill="url(#ctv)"/><rect x="8" y="9" width="1" height="1" fill="#fff"/><rect x="18" y="8" width="2" height="3" fill="#1F1E1D"/><rect x="18" y="8" width="2" height="1" fill="url(#ctv)"/><rect x="18" y="9" width="1" height="1" fill="#fff"/></g></g></svg>`
+const CLAWD_PANICO = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="24" viewBox="0 0 28 24" shape-rendering="crispEdges"><style>.ps{animation:ps 1s steps(1) infinite}@keyframes ps{0%{transform:translateX(2px)}8%{transform:none}16%{transform:translateX(-2px)}24%{transform:translateX(2px)}32%{transform:none}40%{transform:translateX(-2px)}48%{transform:none}}.pe{animation:pb .5s steps(1) infinite}.pd{animation:pb .5s steps(1) infinite -.25s}@keyframes pb{50%{transform:translateY(2px)}}.pg{animation:pg 1s ease-out infinite}@keyframes pg{0%{opacity:.85}60%,100%{opacity:.45}}.pu{animation:pu 1s steps(1) infinite}@keyframes pu{0%{transform:translateY(1px)}48%{transform:none}}.px{animation:px 1s steps(1) infinite}@keyframes px{60%{opacity:.3}}@media (prefers-reduced-motion:reduce){.ps,.pe,.pd,.pg,.pu,.px{animation:none}}</style><defs><linearGradient id="cpv" gradientUnits="userSpaceOnUse" x1="0" y1="6" x2="0" y2="18"><stop offset="0" stop-color="#F28580"/><stop offset=".2" stop-color="#EA615F"/><stop offset=".52" stop-color="#E24B4A"/><stop offset=".84" stop-color="#CC3E3E"/><stop offset="1" stop-color="#A83032"/></linearGradient><linearGradient id="cph" gradientUnits="userSpaceOnUse" x1="2" y1="0" x2="26" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".06"/><stop offset=".42" stop-color="#fff" stop-opacity="0"/><stop offset=".62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".16"/></linearGradient><linearGradient id="cpr" gradientUnits="userSpaceOnUse" x1="7" y1="0" x2="21" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset=".55" stop-color="#fff" stop-opacity=".14"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><linearGradient id="cpl" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="22"><stop offset="0" stop-color="#7A2224"/><stop offset=".45" stop-color="#B23638"/><stop offset="1" stop-color="#C4403F"/></linearGradient><filter id="cpb" filterUnits="userSpaceOnUse" x="-4" y="-4" width="36" height="32"><feGaussianBlur stdDeviation="1.6"/></filter><filter id="cpm" filterUnits="userSpaceOnUse" x="-4" y="-4" width="36" height="32"><feGaussianBlur stdDeviation=".7"/></filter><filter id="cpn" filterUnits="userSpaceOnUse" x="-4" y="14" width="36" height="14"><feGaussianBlur stdDeviation="1"/></filter><filter id="cps" filterUnits="userSpaceOnUse" x="0" y="0" width="28" height="24"><feGaussianBlur stdDeviation="1.3"/></filter><clipPath id="cpc"><path d="M6 6h16v12H6z"/></clipPath></defs><defs><linearGradient id="cpy" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="6"><stop offset="0" stop-color="#FFE75A"/><stop offset="1" stop-color="#FFC400"/></linearGradient><filter id="cpx" filterUnits="userSpaceOnUse" x="14" y="-6" width="20" height="20"><feGaussianBlur stdDeviation="1.2"/></filter></defs><g filter="url(#cpn)" fill="#000" fill-opacity=".3" shape-rendering="auto"><g><ellipse cx="10" cy="22.3" rx="7" ry="1.3"/></g><g><ellipse cx="18" cy="22.3" rx="7" ry="1.3"/></g></g><g class="ps"><g filter="url(#cpb)" class="pg"><path fill="#E24B4A" d="M6 6h16v12H6zM2 8h4v4H2zM22 8h4v4h-4zM6 18h2v4h-2zM10 18h2v4h-2zM16 18h2v4h-2zM20 18h2v4h-2z"/></g><rect x="6" y="18" width="2" height="4" fill="url(#cpl)"/><rect x="10" y="18" width="2" height="4" fill="url(#cpl)"/><rect x="16" y="18" width="2" height="4" fill="url(#cpl)"/><rect x="16" y="18" width="2" height="4" fill="#000" fill-opacity=".09"/><rect x="20" y="18" width="2" height="4" fill="url(#cpl)"/><rect x="20" y="18" width="2" height="4" fill="#000" fill-opacity=".09"/><g class="pe"><path d="M2 8h4v4H2z" fill="url(#cpv)"/><path d="M2 8h4v4H2z" fill="url(#cph)"/><rect x="2" y="8" width="4" height="1" fill="#fff" fill-opacity=".2"/><rect x="2" y="11" width="4" height="1" fill="#000" fill-opacity=".1"/></g><g class="pd"><path d="M22 8h4v4h-4z" fill="url(#cpv)"/><path d="M22 8h4v4h-4z" fill="url(#cph)"/><rect x="22" y="8" width="4" height="1" fill="#fff" fill-opacity=".1"/><rect x="22" y="11" width="4" height="1" fill="#000" fill-opacity=".1"/></g><path d="M6 6h16v12H6z" fill="url(#cpv)"/><path d="M6 6h16v12H6z" fill="url(#cph)"/><g clip-path="url(#cpc)"><ellipse cx="10.5" cy="7.5" rx="5.5" ry="2.6" fill="#fff" opacity=".15" filter="url(#cps)"/></g><rect x="7" y="6" width="14" height="1" fill="url(#cpr)"/><rect x="6" y="10" width="1" height="4" fill="#000" fill-opacity=".06"/><rect x="21" y="10" width="1" height="4" fill="#000" fill-opacity=".08"/><rect x="6" y="8" width="4" height="4" fill="#fff"/><rect x="6" y="11" width="4" height="1" fill="#D9D4D2"/><rect x="18" y="8" width="4" height="4" fill="#fff"/><rect x="18" y="11" width="4" height="1" fill="#D9D4D2"/><g class="pu"><rect x="7" y="9" width="2" height="2" fill="#1F1E1D"/><rect x="19" y="9" width="2" height="2" fill="#1F1E1D"/></g><g class="px"><g filter="url(#cpx)" opacity=".6"><rect x="24" y="0" width="2" height="3" fill="url(#cpy)"/><rect x="24" y="4" width="2" height="2" fill="url(#cpy)"/></g><rect x="24" y="0" width="2" height="3" fill="url(#cpy)"/><rect x="24" y="4" width="2" height="2" fill="url(#cpy)"/></g></g></svg>`
+// Ícones dos botões do desktop, na família das pílulas (Prensa A e disquete com check)
+const ICONE_COMPACTAR = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" role="img" aria-label="Compactar"><title>Compactar</title><style>
+.fd{fill:#E9E7E1}.tx{fill:#2B2A27}.mu{fill:#6F6C65}.vz{fill:#000;fill-opacity:.11}.success{fill:#2F8F5B}.warning{fill:#B07C1E}.error{fill:#CF4A40}.none{fill:#6F6C65}
+.a-vz{stroke:#000;stroke-opacity:.11}.a-tx{stroke:#2B2A27}.a-mu{stroke:#6F6C65}.a-success{stroke:#2F8F5B}.a-warning{stroke:#B07C1E}.a-error{stroke:#CF4A40}
+@media (prefers-color-scheme: dark){.fd{fill:#2D2C2A}.tx{fill:#ECEAE3}.mu{fill:#8F8C83}.vz{fill:#fff}.success{fill:#8CC29A}.warning{fill:#E3B566}.error{fill:#E8776C}.none{fill:#8F8C83}
+.a-vz{stroke:#fff}.a-tx{stroke:#ECEAE3}.a-mu{stroke:#8F8C83}.a-success{stroke:#8CC29A}.a-warning{stroke:#E3B566}.a-error{stroke:#E8776C}}
+</style><rect class="fd" width="24" height="24" rx="12"/><defs><filter id="b" x="-30%" y="-150%" width="160%" height="400%"><feGaussianBlur stdDeviation="1.6"/></filter></defs><g filter="url(#b)" opacity=".5"><rect class="warning" x="6" y="10" width="12" height="4" rx="2"/></g><rect class="warning" x="6" y="10" width="12" height="4" rx="2"/><path d="M9 4.8 12 7.2l3-2.4M9 19.2l3-2.4 3 2.4" fill="none" class="a-tx" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+const ICONE_SALVAR = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" role="img" aria-label="Salvar"><title>Salvar</title><style>.fd{fill:#E9E7E1}.tx{fill:#2B2A27}.vz{fill:#000;fill-opacity:.11}.success{fill:#2F8F5B}.a-tx{stroke:#2B2A27}.a-success{stroke:#2F8F5B}@media (prefers-color-scheme: dark){.fd{fill:#2D2C2A}.tx{fill:#ECEAE3}.vz{fill:#fff}.success{fill:#8CC29A}.a-tx{stroke:#ECEAE3}.a-success{stroke:#8CC29A}}</style><defs><filter id="bs" filterUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><feGaussianBlur stdDeviation="1.6"/></filter></defs><rect class="fd" width="24" height="24" rx="12"/><path class="vz" d="M7 5.5H15.5L18.5 8.5V17A1.5 1.5 0 0 1 17 18.5H7A1.5 1.5 0 0 1 5.5 17V7A1.5 1.5 0 0 1 7 5.5Z"/><path class="a-tx" fill="none" stroke-width="1.25" stroke-opacity=".85" d="M7 5.5H15.5L18.5 8.5V17A1.5 1.5 0 0 1 17 18.5H7A1.5 1.5 0 0 1 5.5 17V7A1.5 1.5 0 0 1 7 5.5Z"/><path class="tx" d="M8.5 5.5h6v3.25c0 .41-.34.75-.75.75h-4.5a.75.75 0 0 1-.75-.75Z"/><rect class="fd" x="12" y="6.25" width="1.25" height="2.25" rx=".5"/><g filter="url(#bs)" opacity=".5"><path class="a-success" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M9.25 14l1.9 1.9 3.6-3.9"/></g><path class="a-success" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M9.25 14l1.9 1.9 3.6-3.9"/></svg>`
 let clawdEstado = 'vez'
-let clawdQuadro = 0
 function mudarClawd($: EngineInterface, estado: string) {
   if (clawdEstado === estado) return
   clawdEstado = estado
   $.ui.invalidate('ui.render')
 }
-// Chamado pelo relógio da faixa: só redesenha quando o quadro do Clawd muda de fato
-function passarQuadroClawd($: EngineInterface) {
-  clawdQuadro++
-  const piscando = clawdQuadro % CLAWD_PISCA_A_CADA < 2
-  if (clawdEstado === 'panico' || (clawdEstado === 'vez' && piscando)) $.ui.invalidate('ui.render')
-}
-function clawdPixels(art: string[], cor: string, dy: number, dx: number): string {
-  let r = ''
-  art.forEach((linha, y) => [...linha].forEach((c, x) => {
-    if (c === '#') r += `<rect x="${x * 2 + dx}" y="${y * 2 + dy}" width="2" height="2" fill="${cor}"/>`
-  }))
-  return r
-}
-function clawdOlhos(dy: number, dx: number, estilo: string, cor?: string): string {
-  return [3, 8].map((x) => {
-    const X = x * 2 + dx, Y = 2 + dy
-    if (estilo === 'panico') return `<rect x="${X - 1}" y="${Y - 1}" width="4" height="4" fill="#FFFFFF"/><rect x="${X}" y="${Y}" width="2" height="2" fill="#000000"/>`
-    if (estilo === 'fechado') return `<rect x="${X}" y="${Y + 1}" width="2" height="1" fill="#000000"/>`
-    return `<rect x="${X}" y="${Y}" width="2" height="2" fill="#000000"/>`
-  }).join('')
-}
-const CLAWD_CORPO = ['..########..', '..########..', '############', '############', '..########..', '..########..']
-const CLAWD_PERNAS_A = ['', '', '', '', '', '', '..#.#..#.#..', '..#.#..#.#..']
-const CLAWD_PANICO_CORPO = ['...........#', '..########.#', '..##########', '############', '############', '..########..', '..########..', '..#.#..#.#..', '..#.#..#.#..']
-const clawdCache: Record<string, string> = {}
-// Trabalhando (eu ou qualquer subagente): o mesmo Clawd andando do painel de agentes,
-// animado por CSS dentro do SVG, sem redesenhar a faixa
-const CLAWD_TRABALHANDO_ALTURA = 18
 function clawdSvgAgora(subRodando: boolean) {
-  const q = clawdQuadro
-  let chave, altura, miolo, alt
-  if (clawdEstado === 'panico') {
-    // Treme 1 px para os lados; o "!" pisca. Corpo encostado no chão, mão em y 10, "!" acima dela.
-    const dx = [0, 1, 2, 1][q % 4] as number
-    const aceso = q % 2 === 0
-    chave = 'p' + dx + aceso
-    altura = CLAWD_PANICO_ALTURA
-    alt = 'precisa de você'
-    const dy = altura - CLAWD_PANICO_CORPO.length * 2
-    miolo = clawdPixels(CLAWD_PANICO_CORPO, '#E24B4A', dy, dx) + clawdOlhos(dy + 2, dx, 'panico') +
-      `<g fill="#FFD60A" opacity="${aceso ? 1 : 0.3}"><rect x="${22 + dx}" y="0" width="2" height="4"/><rect x="${22 + dx}" y="6" width="2" height="2"/></g>`
-  } else if (clawdEstado === 'trabalhando' || subRodando) {
-    chave = 't'
-    altura = CLAWD_TRABALHANDO_ALTURA
-    alt = 'trabalhando'
-    clawdCache[chave] ??= `<svg xmlns="http://www.w3.org/2000/svg" width="${CLAWD_LARGURA}" height="${altura}" viewBox="2 9 26 ${altura}">${CRAB_CSS}${crab(0, 0, 'other', false, true, 1)}</svg>`
-    return { source: clawdCache[chave] as string, altura, alt }
-  } else {
-    const piscando = q % CLAWD_PISCA_A_CADA === 0
-    chave = 'n' + piscando
-    altura = 16
-    alt = 'sua vez'
-    miolo = clawdPixels(CLAWD_CORPO, '#DA7758', 0, 1) + clawdPixels(CLAWD_PERNAS_A, '#DA7758', 0, 1) +
-      clawdOlhos(0, 1, piscando ? 'fechado' : 'aberto')
+  if (clawdEstado === 'panico') return { source: CLAWD_PANICO, alt: 'precisa de você' }
+  if (clawdEstado === 'trabalhando' || subRodando) return { source: CLAWD_TRABALHANDO, alt: 'trabalhando' }
+  return { source: CLAWD_VEZ, alt: 'sua vez' }
+}
+
+// Desenho com uma área invisível por cima, que recebe o clique: botão do app só aceita texto
+function iconeClicavel(elements: Els, key: string, source: string, alt: string, width: number, height: number) {
+  return elements.Box({
+    key,
+    position: 'relative',
+    flexShrink: 0,
+    children: [
+      elements.Svg({ source, alt, width, height }),
+      elements.Box({ key: key + '-clique', position: 'absolute', top: 0, left: 0, children: [elements.Client({ key, module: './clawd.jsx', width: 3, height: 1 })] }),
+    ],
+  })
+}
+
+function pedirCompactar($: EngineInterface) {
+  $.ui.toast('Compactando…')
+  compactar($)
+}
+
+function pedirSalvar($: EngineInterface) {
+  if (compactarDepois) {
+    $.ui.toast('Já está salvando…')
+    return
   }
-  clawdCache[chave] ??= `<svg xmlns="http://www.w3.org/2000/svg" width="${CLAWD_LARGURA}" height="${altura}" viewBox="0 0 ${CLAWD_LARGURA} ${altura}" shape-rendering="crispEdges">${miolo}</svg>`
-  return { source: clawdCache[chave] as string, altura, alt }
+  compactarDepois = true
+  $.ui.toast('Salvando o ESTADO.md… depois compacta sozinho.')
+  void $.prompt.submit({ text: PROMPT_ESTADO, asUser: true }).catch(() => {})
 }
 
 type Pilula = { source: string; width: number; height: number; alt: string }
@@ -1587,6 +1563,10 @@ function pilula(largura: number, miolo: string, alt: string): Pilula {
   const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${PILULA_ALTURA}" viewBox="0 0 ${width} ${PILULA_ALTURA}">${PILULA_CSS}<rect class="fd" width="${width}" height="${PILULA_ALTURA}" rx="${PILULA_ALTURA / 2}"/>${miolo}</svg>`
   return { source, width, height: PILULA_ALTURA, alt }
 }
+
+// Número em tabular tem largura fixa; a estimativa de `textWidth` conta o 1 como fino e fazia texto vazar
+const larguraPilula = (s: string, size: number) =>
+  [...s].reduce((w, ch) => w + (/\d/.test(ch) ? 0.56 : ch === '%' ? 0.85 : charEm(ch)) * size, 0)
 
 const textoPilula = (x: number, partes: string) =>
   `<text x="${x}" y="16" font-family="${PILULA_FONTE}" font-size="11.5" style="font-variant-numeric:tabular-nums">${partes}</text>`
@@ -1598,54 +1578,185 @@ function pilulaAnel(label: string, used: number, status: Status | null, value: s
   const r = 5
   const volta = 2 * Math.PI * r
   const anel = `<circle cx="16" cy="12" r="${r}" fill="none" class="a-vz" stroke-width="2.4"/><circle cx="16" cy="12" r="${r}" fill="none" class="a-${status === 'success' || !status ? 'tx' : status}" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="${((clamp(used) / 100) * volta).toFixed(1)} ${volta.toFixed(1)}" transform="rotate(-90 16 12)"/>`
-  const largura = 26 + textWidth(label, 11.5) + 5 + textWidth(value, 12) + (reset ? 6 + textWidth(reset, 11.5) : 0) + 11
+  const largura = 26 + larguraPilula(label, 11.5) + 5 + larguraPilula(value, 12) + (reset ? 6 + larguraPilula(reset, 11.5) : 0) + 12
   const texto = trecho(label, 'mu') + trecho(value, status && status !== 'success' ? status : 'tx', 5, 600) + (reset ? trecho(reset, 'mu', 6) : '')
   return pilula(largura, anel + textoPilula(26, texto), [label, value, reset].filter(Boolean).join(' '))
 }
 
-// A semana: cápsulas cheias com brilho, a previsão mais apagada e a célula do tempo contornada
-function pilulaSemana(used: number, elapsed: number | null, status: Status | null, fecha: number | null | undefined, reset: string): Pilula {
+// A semana: cápsulas cheias com brilho e a célula do tempo contornada
+function pilulaSemana(used: number, elapsed: number | null, status: Status | null, reset: string): Pilula {
   const passo = 6
   const cor = status ?? 'none'
   const cheias = Math.round((clamp(used) / 100) * CELULAS)
-  const previstas = fecha == null ? cheias : Math.round((clamp(fecha) / 100) * CELULAS)
-  const celula = (i: number, cls: string, resto = '') => `<rect class="${cls}" x="${10 + i * passo}" y="6" width="4" height="12" rx="2"${resto}/>`
+  const celula = (i: number, cls: string) => `<rect class="${cls}" x="${10 + i * passo}" y="6" width="4" height="12" rx="2"/>`
   let brilho = ''
   let celulas = ''
   for (let i = 0; i < CELULAS; i++) {
     if (i < cheias) brilho += celula(i, cor)
-    celulas += i < cheias ? celula(i, cor) : i < previstas ? celula(i, cor, ' fill-opacity=".42"') : celula(i, 'vz')
+    celulas += celula(i, i < cheias ? cor : 'vz')
   }
-  const marca = elapsed == null ? '' : `<rect class="a-tx" x="${8.5 + Math.min(CELULAS - 1, Math.floor((elapsed / 100) * CELULAS)) * passo}" y="3.5" width="7" height="17" rx="3" fill="none" stroke-opacity=".85"/>`
+  const tempo = elapsed == null ? null : Math.min(CELULAS - 1, Math.floor((elapsed / 100) * CELULAS))
+  const contorno = (resto: string) => `<rect class="a-tx" x="${8.5 + (tempo ?? 0) * passo}" y="3.5" width="7" height="17" rx="3" fill="none" ${resto}/>`
   const usado = Math.round(used) + '%'
-  const previsao = fecha == null ? '' : '→ ' + Math.round(fecha) + '%'
   const x = 10 + CELULAS * passo + 6
-  const largura = x + textWidth(usado, 12) + (previsao ? 5 + textWidth(previsao, 11.5) : 0) + (reset ? 6 + textWidth(reset, 11.5) : 0) + 11
-  const texto = trecho(usado, 'tx', 0, 600) + (previsao ? trecho(previsao, cor, 5) : '') + (reset ? trecho(reset, 'mu', 6) : '')
-  const defs = `<defs><filter id="b" x="-10%" y="-60%" width="120%" height="220%"><feGaussianBlur stdDeviation="1.6"/></filter></defs>`
-  return pilula(largura, `${defs}<g filter="url(#b)" opacity=".5">${brilho}</g>${celulas}${marca}${textoPilula(x, texto)}`, [`semana ${usado}`, previsao, reset].filter(Boolean).join(' '))
+  const largura = x + larguraPilula(usado, 12) + (reset ? 6 + larguraPilula(reset, 11.5) : 0) + 12
+  const texto = trecho(usado, 'tx', 0, 600) + (reset ? trecho(reset, 'mu', 6) : '')
+  const defs = `<defs><filter id="b" x="-10%" y="-60%" width="120%" height="220%"><feGaussianBlur stdDeviation="1.6"/></filter><filter id="m" x="-80%" y="-30%" width="260%" height="160%"><feGaussianBlur stdDeviation="1.2"/></filter></defs>`
+  const onda = ondaSemana(cheias, passo, cor, brilho, tempo, `${cheias}|${cor}|${tempo}|${usado}|${reset}`)
+  // As duas linhas do contorno ficam como estão; o respiro e a resposta à luz vêm por cima, em onda.contorno
+  const marca = elapsed == null ? '' : contorno('stroke-opacity=".55" stroke-width="1.5" filter="url(#m)"') + contorno('stroke-opacity=".85"') + onda.contorno
+  return pilula(largura, `${defs}<g filter="url(#b)" opacity=".5">${brilho}</g>${onda.halo}${celulas}${onda.luz}${marca}${textoPilula(x, texto)}`, [`semana ${usado}`, reset].filter(Boolean).join(' '))
 }
 
-// O ritmo: gasto de cada 5 minutos da última hora, a palavra e os números
-function pilulaRitmo(r: Ritmo): Pilula {
-  const maior = Math.max(...r.barras, 0.01)
-  const cor = r.status ?? 'none'
-  const barras = r.barras
-    .map((usd, i) => {
-      const h = usd > 0 ? Math.max(2, (usd / maior) * 12) : 1.5
-      const ultima = i === r.barras.length - 1
-      return `<rect class="${ultima ? cor : 'vz'}" x="${10 + i * 3}" y="${18 - h}" width="2" height="${h.toFixed(1)}" rx="1"${ultima || usd === 0 ? '' : ' style="fill-opacity:.32"'}/>`
-    })
-    .join('')
-  const numeros = r.fala === 'parado' ? 'meta ' + numero(r.meta) + ' %/h' : r.fala === 'esgotou' ? '' : numero(r.agora) + '/' + numero(r.meta) + ' %/h'
-  const x = 10 + BARRAS_RITMO * 3 + 5
-  const largura = x + textWidth(r.fala, 12) + (numeros ? 6 + textWidth(numeros, 11.5) : 0) + 11
-  return pilula(largura, barras + textoPilula(x, trecho(r.fala, cor, 0, 600) + (numeros ? trecho(numeros, 'mu', 6) : '')), `ritmo ${r.fala} ${numeros}`)
+const suave = (t: number) => {
+  const u = Math.min(1, Math.max(0, t))
+  return u * u * (3 - 2 * u)
+}
+
+// A curva de luz de uma cápsula: `sobe` segundos para acender, cai em exponencial e chega a zero em `some`
+function envelope(t: number, sobe: number, tau: number, some: number) {
+  if (t <= 0) return 0
+  if (t < sobe) return suave(t / sobe)
+  const piso = Math.exp(-(some - sobe) / tau)
+  return Math.max(0, (Math.exp(-(t - sobe) / tau) - piso) / (1 - piso))
+}
+
+// Quantos passos um trecho de `quadros` quadros precisa. Sempre um divisor: passo fora da grade de 24 fps
+// faria cada cápsula repintar num instante próprio, e a soma sairia mais cara que o quadro cheio.
+function passos(quadros: number, mudanca: number) {
+  for (let k = 1; k < quadros; k++) if (quadros % k === 0 && k >= mudanca) return k
+  return quadros
+}
+
+// Vira uma curva em @keyframes. Cada trecho reto ganha seus steps() e a curva não precisa de um keyframe por quadro.
+// O teto é um passo por quadro de 24 fps. `niveis` baixa isso onde a mudança é menor que um tom da tela: o fim
+// lento do rastro repinta poucas vezes por segundo em vez de 24, e a diferença não se vê.
+function quadrosCss(nome: string, total: number, valor: (f: number) => number, propriedade: (v: number) => string, folga: number, niveis = Infinity) {
+  let css = ''
+  let a = 0
+  while (a < total) {
+    let b = a + 1
+    for (let c = a + 2; c <= total; c++) {
+      let reta = true
+      for (let f = a + 1; f < c && reta; f++) reta = Math.abs(valor(a) + ((valor(c) - valor(a)) * (f - a)) / (c - a) - valor(f)) <= folga
+      if (!reta) break
+      b = c
+    }
+    css += `${((a / total) * 100).toFixed(3)}%{${propriedade(valor(a))};animation-timing-function:steps(${passos(b - a, Math.abs(valor(b) - valor(a)) * niveis)})}`
+    a = b
+  }
+  return `@keyframes ${nome}{${css}100%{${propriedade(valor(total))}}}`
+}
+
+// A luz que caminha das primeiras cápsulas até onde o uso está. Peças, de baixo para cima:
+// halo na cor da cápsula, por baixo, atrasado; brasa de cada cápsula, que acende depois da crista e apaga
+// devagar (é ela o rastro); crista clara, recortada nas cápsulas; névoa clarinha por cima, sem recorte.
+// Tudo é gradiente e opacidade, porque o SVG inteiro repinta a cada quadro. Nenhum filtro novo.
+function ondaSemana(cheias: number, passo: number, cor: string, formas: string, tempo: number | null, chave: string) {
+  // A imagem renasce quando o texto muda (o % sobe, o relógio vira). A fase vem do relógio do PC, para a onda
+  // continuar de onde estava em vez de voltar ao começo. A guarda faz a mesma pílula dar sempre a mesma string.
+  if (!ondaGuardada.has(chave)) {
+    if (ondaGuardada.size > 8) ondaGuardada.clear()
+    ondaGuardada.set(chave, montarOnda(cheias, passo, cor, formas, tempo))
+  }
+  return ondaGuardada.get(chave) as OndaPecas
+}
+
+function montarOnda(cheias: number, passo: number, cor: string, formas: string, tempo: number | null): OndaPecas {
+  const tons = (ONDA_TONS[cor] ?? ONDA_TONS.none) as [string, string, string, string]
+  const F = ONDA_FPS
+  // Sem uso não há onda, e a pílula fica parada: nada repinta
+  if (!cheias) return { halo: '', luz: '', contorno: '' }
+
+  // O caminho da crista, quadro a quadro: sai devagar, cruza, e freia ao chegar na última cápsula
+  const partida = 9
+  const fim = 10 + (cheias - 1) * passo + 2
+  const pos = [partida]
+  for (let x = partida; x < fim - 0.01; pos.push(x)) {
+    const v = ONDA_VELOCIDADE * Math.min(0.45 + 0.55 * suave((x - partida) / 8), 0.14 + 0.86 * suave((fim - x) / 14))
+    x = Math.min(fim, x + v / F)
+  }
+  const andar = pos.length - 1
+  const total = andar + Math.round(3.4 * F)
+  const periodo = total / F
+  const chega = (i: number) => {
+    const alvo = Math.min(fim, 12 + i * passo)
+    const f = pos.findIndex((x) => x >= alvo)
+    return f < 0 ? andar : f
+  }
+  const fase = Math.round(((Date.now() / 1000) % periodo) * F)
+  // Todas as peças usam atraso negativo: a imagem já abre no meio do ciclo, sem tela preta
+  const atraso = (quadro: number) => `animation-delay:${((((((quadro - fase) % total) + total) % total) - total) / F).toFixed(3)}s`
+  const dur = `${periodo.toFixed(4)}s infinite`
+
+  // Brasa comum: acende antes de a crista sair da cápsula e passa do pico depois dela
+  const antes = Math.round(0.42 * F)
+  const brasa = (f: number) => envelope(f / F, 0.8, 2, 4.6)
+  // A última cápsula recebe a luz inteira: sobe mais devagar e guarda mais tempo
+  const sobeFim = Math.round(0.75 * F)
+  const brasaFim = (f: number) => envelope(f / F, 1.35, 1.25, 3.95)
+  const opac = (v: number) => `opacity:${v.toFixed(3)}`
+  const crista = (f: number) => suave(f / (2 * F)) * (1 - suave((f - (andar - 1.1 * F)) / (1.6 * F)))
+  // O halo chega depois da luz e sai antes dela: não pode virar nuvem na ponta esquerda nem sobre as vazias
+  const halo = (f: number) => suave(f / (2.6 * F)) * (1 - suave((f - (andar - 3 * F)) / (1.9 * F)))
+  const css = `<style>.o-a,.o-n,.o-e,.o-f,.o-v,.o-q,.o-k,.o-r{opacity:0}
+.o-a{animation:o-x ${dur},o-a ${dur}}.o-n{animation:o-x ${dur},o-n ${dur}}.o-e{animation:o-e ${dur}}.o-f{animation:o-f ${dur}}.o-v{animation:o-v ${dur}}.o-k{animation:o-k ${dur}}.o-r{animation:o-r ${dur}}
+${quadrosCss('o-x', total, (f) => pos[Math.min(f, andar)] ?? fim, (v) => `transform:translateX(${v.toFixed(2)}px)`, 0.03)}
+${quadrosCss('o-a', total, crista, opac, 0.012, 190)}
+${quadrosCss('o-n', total, halo, opac, 0.012, 90)}
+${quadrosCss('o-e', total, brasa, opac, 0.012, 140)}
+${quadrosCss('o-f', total, brasaFim, opac, 0.012, 150)}
+${quadrosCss('o-v', total, (f) => envelope(f / F, 0.8, 0.8, 2.6), opac, 0.015, 40)}
+${quadrosCss('o-k', total, (f) => envelope(f / F, 0.7, 0.75, 2.5), opac, 0.015, 90)}
+${quadrosCss('o-r', total, (f) => 0.3 + 0.7 * Math.sin((Math.PI * f) / total) ** 2, opac, 0.01, 40)}
+.o-l{stop-color:${tons[0]}}.o-b{stop-color:${tons[1]}}.o-h{stop-opacity:.28}.o-y{fill-opacity:.4}
+@media (prefers-color-scheme: dark){.o-l{stop-color:${tons[2]}}.o-b{stop-color:${tons[3]}}.o-h{stop-opacity:.34}.o-y{fill-opacity:1}}
+@media (prefers-reduced-motion: reduce){.o-r{animation:none;opacity:.5}.o-a,.o-n,.o-e,.o-v,.o-k{animation:none}.o-f{animation:none;opacity:.42}.o-q{opacity:1}}</style>`
+
+  const degrade = (id: string, classe: string, pontos: [number, number][], extra: string) =>
+    `<radialGradient id="${id}" ${extra}>${pontos.map(([o, a]) => `<stop offset="${o}" class="${classe}" stop-opacity="${a}"/>`).join('')}</radialGradient>`
+  const defs = `<defs>${degrade('ol', 'o-l', [[0, 0.74], [0.22, 0.6], [0.48, 0.27], [0.74, 0.07], [1, 0]], 'cx=".46" cy=".44" r=".5" fx=".62" fy=".42"')}
+${degrade('oz', 'o-l', [[0, 0.17], [0.4, 0.09], [0.75, 0.02], [1, 0]], 'cx=".5" cy=".46" r=".5"')}
+<radialGradient id="oh"><stop offset="0" class="p-${cor} o-h"/><stop offset=".45" class="p-${cor}" stop-opacity=".12"/><stop offset=".78" class="p-${cor}" stop-opacity=".03"/><stop offset="1" class="p-${cor}" stop-opacity="0"/></radialGradient>
+<linearGradient id="og" gradientUnits="userSpaceOnUse" x1="0" y1="6" x2="0" y2="18"><stop offset="0" class="o-b"/><stop offset=".55" class="o-b" stop-opacity=".86"/><stop offset="1" class="o-b" stop-opacity=".5"/></linearGradient>
+<linearGradient id="oq" gradientUnits="userSpaceOnUse" x1="${Math.max(10, fim - 42)}" y1="0" x2="${fim + 2}" y2="0"><stop offset="0" class="o-b" stop-opacity="0"/><stop offset="1" class="o-b" stop-opacity=".3"/></linearGradient>
+<clipPath id="oc">${formas.replace(/ class="[^"]*"/g, '')}</clipPath></defs>`
+
+  // A onda junta força nas primeiras cápsulas, em vez de já nascer inteira
+  const forca = (i: number) => Math.min(1, 0.5 + i * 0.22) * (ONDA_GRAOS[i] ?? 1) * 0.7
+  const capsula = (classe: string, i: number, opacidade: number, quadro: number, tinta = 'url(#og)') =>
+    `<rect class="${classe}" x="${10 + i * passo}" y="6" width="4" height="12" rx="2" fill="${tinta}" fill-opacity="${opacidade.toFixed(3)}" style="${atraso(quadro)}"/>`
+  let brasas = ''
+  for (let i = 0; i < cheias - 1; i++) brasas += capsula('o-e', i, forca(i), chega(i) - antes)
+  // A última guarda a luz que chegou. É a única que sobe acima das outras, e pouco
+  brasas += capsula('o-f', cheias - 1, Math.min(1, forca(cheias - 1) * 1.2), andar - sobeFim)
+  // Refluxo: duas cápsulas antes da última sentem um retorno bem fraco, como água voltando da areia
+  for (let k = 1; k <= 2 && cheias - 1 - k >= 0; k++) brasas += capsula('o-v', cheias - 1 - k, 0.15 / k, andar + Math.round((0.55 + k * 0.34) * F))
+  // O que sobra passa para as vazias só como reflexo, e para na segunda
+  for (let k = 0; k < 2 && cheias + k < CELULAS; k++) brasas += capsula('o-v', cheias + k, k ? 0.035 : 0.09, andar + Math.round((0.3 + k * 0.42) * F))
+
+  // O contorno sente a luz quando ela passa por baixo; fora da parte cheia sente menos, e de longe nada
+  const distancia = tempo == null ? -1 : Math.max(0, tempo - (cheias - 1))
+  const alcance = ONDA_ALCANCE_CONTORNO[distancia] ?? 0
+  // O respiro do contorno acompanha a onda e não usa o filtro: animar o brilho filtrado custava mais que as brasas todas
+  const respira = tempo == null ? '' : `<rect class="o-r a-tx" x="${8.5 + tempo * passo}" y="3.5" width="7" height="17" rx="3" fill="none" stroke-width="2.6" stroke-opacity=".1" style="${atraso(0)}"/>`
+  const resposta = tempo != null && alcance > 0
+    ? `<rect class="o-k a-tx" x="${8.5 + tempo * passo}" y="3.5" width="7" height="17" rx="3" fill="none" stroke-width="1.1" stroke-opacity="${(alcance * 0.62).toFixed(3)}" style="${atraso(distancia ? andar + Math.round(0.28 * distancia * F) : chega(tempo) - Math.round(0.3 * F))}"/>`
+    : ''
+
+  const peca = (rx: number, largura: number, tinta: string, quadro: number, classe = 'o-a') =>
+    `<rect class="${classe}" x="${rx}" y="0" width="${largura}" height="${PILULA_ALTURA}" fill="url(#${tinta})" style="${atraso(quadro)}"/>`
+  const calma = `<g clip-path="url(#oc)"><rect class="o-q" x="0" y="0" width="${fim + 4}" height="${PILULA_ALTURA}" fill="url(#oq)"/></g>`
+  return {
+    halo: `${css}${defs}${peca(-18, 36, 'oh', Math.round(0.42 * F), 'o-n')}`,
+    luz: `${brasas}${calma}<g clip-path="url(#oc)">${peca(-13, 26, 'ol', 0)}</g>${peca(-12, 24, 'oz', 0, 'o-a o-y')}`,
+    contorno: respira + resposta,
+  }
 }
 
 function pilulaCache(texto: string, status: Status): Pilula {
   const relogio = `<circle cx="14" cy="12" r="4.5" fill="none" class="a-mu" stroke-width="1.2"/><path d="M14 9.5v2.5l1.7 1.2" fill="none" class="a-mu" stroke-width="1.2" stroke-linecap="round"/>`
-  return pilula(23 + textWidth(texto, 12) + 11, relogio + textoPilula(23, trecho(texto, status === 'success' ? 'tx' : status, 0, 500)), `cache ${texto}`)
+  return pilula(23 + larguraPilula(texto, 12) + 12, relogio + textoPilula(23, trecho(texto, status === 'success' ? 'tx' : status, 0, 500)), `cache ${texto}`)
 }
 
 // Toda pílula vai numa caixa com key: é a caixa que entra na linha que quebra
@@ -1672,40 +1783,33 @@ function untilReset(ms: number): string {
   return (minutes % 60) + 'm'
 }
 
-// ---- Ritmo da semana ----
-// O app só dá a semana em ponto inteiro, e 1 ponto leva uns US$ 23,5 de gasto: esperar o ponto subir
-// não mostra o momento. O ritmo vem do gasto em dólar de todas as sessões da conta, convertido pelo
-// câmbio USD_POR_PONTO (medido em 30/10/2026 em cinco trechos, de 23,3 a 24,2, e igual antes e depois
-// de virar Ultra). Cada 4 pontos recalibram o câmbio, que se ajusta sozinho se o plano mudar.
+// ---- Semana ----
+// A faixa mostra a semana: uso em cápsulas e um contorno marcando onde o tempo está. Cápsula antes do
+// contorno = você está atrás do tempo e vai sobrar cota. O medidor de ritmo (palavra, barrinhas e
+// %/h) foi tirado em 30/10/2026: o Cezar viu que o contorno já diz isso. O que ficou de fora dali é o
+// câmbio de `fmtCost`: dólar por ponto, medido em 30/10/2026 em cinco trechos (23,3 a 24,2, igual antes
+// e depois de virar Ultra). Soma o gasto de todas as sessões da conta, e a cada 4 pontos se recalibra.
 const GASTO_PREFIX = 'gasto:'
 const MARCOS_PREFIX = 'marcos:'
 const CAMBIO_PREFIX = 'usdPorPonto:'
 const BALDE_MS = 5 * 60_000
-const JANELA_AGORA_MS = 60 * 60_000
 // Cada sessão guarda só estas horas de gasto, e o câmbio só mede dentro delas
 const HORIZONTE_MS = 6 * HOUR_MS
 const PONTOS_POR_MEDIDA = 4
 const PESO_MEDIDA = 0.3
 const SEMANA_MS = 7 * 24 * HOUR_MS
 // Seis semanas de gasto (set–out/2026): 98% fica entre 7h e 23h de Rondônia, e sábado e domingo rendem
-// 40% e 20% de um dia de semana. A meta conta só essas horas, com esse peso; janela de 1h e faixas
-// abaixo simuladas nessa base: troca de faixa só uma vez a cada 2 horas de trabalho.
+// 40% e 20% de um dia de semana. O contorno e a cor contam só essas horas, com esse peso.
 const UTIL_INICIO = 7
 const UTIL_FIM = 23
 const PESO_DIA = [0.2, 1, 1, 1, 1, 1, 0.4] // domingo a sábado
 // Abaixo destas horas úteis a média da semana ainda não diz nada
 const MIN_HORAS_PREVISAO = 8
-// Agora ÷ meta: entre as duas faixas é "no ritmo"
-const FAIXA_POUCO = 0.6
-const FAIXA_MUITO = 1.6
 // Fechar a semana abaixo disto é deixar cota sobrando
 const FECHA_BOM = 85
 
 type Gasto = { conta: number; baldes: Record<string, number> }
 type Marco = { at: number; pct: number }
-type Ritmo = { agora: number; usdHora: number; meta: number; horas: number; fecha: number | null; fechaAgora: number; fala: string; status: Status | null; barras: number[] }
-
-let ritmo: Ritmo | null = null
 // O total da sessão na última olhada; null até a primeira, que só marca o ponto de partida
 let ultimoUsd: number | null = null
 let gastoProprio: Gasto | null = null
@@ -1732,22 +1836,10 @@ function contaDe(limits: SessionRateLimit[]): number | null {
   return Math.round(Date.parse(semana.resetsAt) / 60_000) % (SEMANA_MS / 60_000)
 }
 
-function calcularRitmo(used: number, resetsAt: number, agoraMs: number, usdJanela: number, janelaMs: number, usdPonto: number, barras: number[]): Ritmo {
-  const horas = horasUteis(agoraMs, resetsAt)
+// Onde a semana fecha mantendo a média por hora útil; só depois de horas suficientes para dizer algo
+function previsaoSemana(used: number, resetsAt: number, agoraMs: number): number | null {
   const feitas = horasUteis(resetsAt - SEMANA_MS, agoraMs)
-  const usdHora = usdJanela / (janelaMs / HOUR_MS)
-  const agora = usdHora / usdPonto
-  const resta = Math.max(0, 100 - used)
-  const meta = resta / Math.max(horas, 0.5)
-  const fecha = feitas >= MIN_HORAS_PREVISAO ? used + (used / feitas) * horas : null
-  const fechaAgora = used + agora * horas
-  const base = { agora, usdHora, meta, horas, fecha, fechaAgora, barras }
-  if (resta === 0) return { ...base, fala: 'esgotou', status: 'error' }
-  if (usdJanela === 0) return { ...base, fala: 'parado', status: null }
-  const vezes = agora / meta
-  if (vezes < FAIXA_POUCO) return { ...base, fala: 'pouco', status: 'warning' }
-  if (vezes > FAIXA_MUITO) return { ...base, fala: 'muito', status: 'error' }
-  return { ...base, fala: 'no ritmo', status: 'success' }
+  return feitas >= MIN_HORAS_PREVISAO ? used + (used / feitas) * horasUteis(agoraMs, resetsAt) : null
 }
 
 function statusDoFechamento(fecha: number): Status {
@@ -1826,26 +1918,14 @@ async function marcarPonto($: EngineInterface, pct: number, conta: number, agora
   await $.store.set(chave, [...marcos, { at: agoraMs, pct }])
 }
 
-async function atualizarRitmo($: EngineInterface) {
+async function atualizarSemana($: EngineInterface) {
   const agoraMs = await $.clock.now()
   const conta = contaDe(rateLimits)
   await anotarGasto($, conta, agoraMs)
   const semana = rateLimits.find((l) => l.kind === 'seven_day')
-  const resetsAt = semana?.resetsAt ? Date.parse(semana.resetsAt) : 0
-  if (!semana || conta == null || resetsAt <= agoraMs) {
-    ritmo = null
-    return
-  }
+  if (!semana || conta == null) return
   usdPorPonto = ((await $.store.get(CAMBIO_PREFIX + conta)) as number | undefined) ?? USD_POR_PONTO
-  const gastos = await lerGastos($, conta, agoraMs)
-  await marcarPonto($, semana.percentUsed, conta, agoraMs, gastos)
-  const desde = Math.floor((agoraMs - JANELA_AGORA_MS) / BALDE_MS) * BALDE_MS
-  const baldeAtual = Math.floor(agoraMs / BALDE_MS)
-  const barras = Array.from({ length: BARRAS_RITMO }, (_, i) => {
-    const t = (baldeAtual - BARRAS_RITMO + 1 + i) * BALDE_MS
-    return somaBaldes(gastos, t, t)
-  })
-  ritmo = calcularRitmo(semana.percentUsed, resetsAt, agoraMs, somaBaldes(gastos, desde, agoraMs), agoraMs - desde, usdPorPonto, barras)
+  await marcarPonto($, semana.percentUsed, conta, agoraMs, await lerGastos($, conta, agoraMs))
 }
 
 // Tira o que as versões antigas deixaram na loja, aos poucos: cada sessão que abre limpa um lote
@@ -1859,35 +1939,6 @@ async function faxinaLoja($: EngineInterface) {
     await $.store.delete(key)
     apagadas++
   }
-}
-
-function numero(n: number): string {
-  return (n >= 10 ? String(Math.round(n)) : n.toFixed(1)).replace('.', ',')
-}
-
-function ritmoMeter(els: Els, surface: string) {
-  if (!ritmo) return null
-  if (surface !== 'terminal') return desenharPilula(els, 'meter-ritmo', pilulaRitmo(ritmo))
-  const { Box, Text } = els
-  const { fala, status, agora, meta } = ritmo
-  const numeros = fala === 'parado' || fala === 'esgotou' ? (fala === 'parado' ? 'meta ' + numero(meta) + '%/h' : '') : numero(agora) + ' de ' + numero(meta) + '%/h'
-  const estilo = status ? { color: status, bold: true } : { dimColor: true }
-  return Box({
-    key: 'ritmo',
-    flexDirection: 'row',
-    columnGap: 1,
-    children: [Text({ dimColor: true, children: ['⚡'] }), Text({ ...estilo, children: [fala] }), Text({ dimColor: true, children: [numeros] })],
-  })
-}
-
-// A conta inteira do ritmo, no topo do painel de agentes
-function ritmoTexto(): string {
-  if (!ritmo) return ''
-  const { agora, usdHora, meta, horas, fecha, fechaAgora } = ritmo
-  return [
-    `Agora ${numero(agora)}%/h (US$ ${Math.round(usdHora)}/h, todas as sessões) · meta ${numero(meta)}%/h nas ${numero(horas)}h úteis que faltam`,
-    `Nesta hora fecha a semana em ${Math.round(fechaAgora)}%${fecha == null ? '' : `, na média da semana em ${Math.round(fecha)}%`} · 1 ponto ≈ US$ ${numero(usdPorPonto)}`,
-  ].join('\n')
 }
 
 // Uma chamada que regravou quase tudo em vez de ler: diz o porquê. Prompt que encolheu (compactar, /clear) não conta.
@@ -1933,7 +1984,6 @@ async function inicio($: EngineInterface) {
   fundo = []
   rateLimits = []
   measuredAt = 0
-  ritmo = null
   ultimoUsd = null
   gastoChave = null
   ownKey = KEY_PREFIX + (await $.session.id())
@@ -1944,11 +1994,11 @@ async function inicio($: EngineInterface) {
   if (usage.rateLimits.length > 0) await publishSnapshot($, usage.rateLimits)
   // Also clears keys ended sessions left, which short runs that never tick would not
   await refresh($)
-  await atualizarRitmo($).catch(() => {})
+  await atualizarSemana($).catch(() => {})
   await faxinaLoja($).catch(() => {})
   ticker = $.clock.every(TICK_MS, async () => {
     await refresh($)
-    await atualizarRitmo($).catch(() => {})
+    await atualizarSemana($).catch(() => {})
     $.ui.invalidate('ui.render')
   })
   $.ui.invalidate('ui.render')

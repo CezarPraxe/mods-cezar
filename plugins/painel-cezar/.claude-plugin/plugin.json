@@ -1,1 +1,1 @@
-{ "name": "painel-cezar", "version": "0.16.0", "description": "Faixa com ctx, semana com previsão de fechamento, ⚡ ritmo do momento, ⏱ cache e botões; painel de agentes com custo em % da semana; hora de Rondônia em cada mensagem", "types": "./types/index.d.ts" }
+{ "name": "painel-cezar", "version": "0.17.0", "description": "Faixa em pílulas com ctx, semana, ⏱ cache, Clawd e botões desenhados; painel de agentes com custo em % da semana; hora de Rondônia em cada mensagem", "types": "./types/index.d.ts" }

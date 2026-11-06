@@ -1,6 +1,6 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 31/10/2026 · instalada a **0.17.0**; a **0.18.0** (tela de agentes) está pronta no ramo `painel-018-tela-agentes`, sem commit e sem instalar · público em github.com/CezarPraxe/mods-cezar
+Atualizado: 06/11/2026 · instalada a **0.19.0** (⚙ corrigido e em pílula) · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
@@ -22,7 +22,9 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
 - **Salvar**: manda o prompt do ESTADO.md (aviso na hora, segundo clique ignorado) e compacta sozinho quando o turno acaba. Depois relê o ctx 5 vezes, de 2 em 2 s.
 - **⏱ cache**: conta do **início** de cada chamada da conversa principal (`turn.step`), guardado no `$.store` (`cache:<sessionId>`), então reiniciar o app não esquenta. Dura 1 h, ou 5 min se a 5h ou a semana chegar a 100% (uso extra). Toast "⏱ Cache frio (motivo): regravou Nk tokens" quando uma chamada ≥ 20k regrava em vez de ler. Motivos: trocou o modelo, passou do tempo, ou mudou esforço/ferramentas/CLAUDE.md. Compactação não avisa.
 - **Hora de Rondônia em toda mensagem:** o `prompt.submit` anexa ao contexto (o modelo lê, o Cezar não vê) "Agora em Rondônia (UTC−4): dia da semana, dd/mm/aaaa, hh:mm". Motivo: SDR e Estagiário mandavam "bom dia" de tarde, e a regra no AGENTS.md não resolvia porque o modelo não tem relógio.
-- **⚙ N** (0.15.0): aparece na faixa quando há comando, monitor, workflow ou agendamento rodando em segundo plano; clique lista o que é. Anota no `tool.call` (run_in_background, Monitor, Workflow, CronCreate, ScheduleWakeup) e tira quando chega o `<task-notification>` com status final (`session.append`), no TaskStop/CronDelete ou no fim do prazo do ScheduleWakeup. Subagente não conta: ele já faz o Clawd andar. O engine não dá lista de tarefas ao mod (o `background_tasks` é só dos hooks de settings).
+- **⚙ N** (pílula desde 0.19.0): engrenagem cinza girando devagar e o número, no desenho das outras pílulas; no terminal segue `⚙ N`. Clique (área invisível, key `fundo`) mostra a lista num toast.
+  - **Fonte da lista (0.19.0):** no fim de cada turno da conversa principal o `classic.Stop` traz `background_tasks` e `session_crons` do engine, e essa lista substitui a anotada (subagente fora). Durante o turno, o `tool.call` ainda anota comando/monitor/workflow/agendamento para aparecer na hora.
+  - **Defeito da 0.15–0.18:** contava `run_in_background` de subagente, cujo aviso de término vai para o subagente; o número só subia (chegou a ⚙ 29 sem nada rodando). Teste em `hooksundo.test.tsx`.
 - Toast ao passar de 70% de contexto.
 - **Limites (5h e semana) por sessão** desde 0.13.3: antes a faixa usava a leitura mais nova de qualquer sessão, e com o CLI numa conta e o desktop em outra trocava o limite de uma pela outra. O engine não informa a conta, então cada sessão mostra só a própria.
 - **Painel de agentes (0.18.0, desenho A, Fila, aprovado em 31/10):** abre pelo Clawd. Ordem fixa: cartão de erro no topo, uma pílula `N trabalhando`, quem roda do mais antigo ao mais novo (nada pula), linha dos concluídos. Concluídos fechados com alguém rodando, abertos quando ninguém roda; a escolha da pessoa vale depois disso. Prévia do código real: `C:\Users\Cezar\praxedes\rascunho\painel-previa\agentes\final.html`.

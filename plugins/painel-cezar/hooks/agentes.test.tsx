@@ -92,7 +92,14 @@ test('clicar na linha abre a conversa daquele agente, com o id certo, nos três 
   on('session.messages', (_, e) => {
     const id = (e as { agentId?: string }).agentId
     lidos.push(id)
-    return { value: [{ role: 'user', text: 'Faça isto', toolUses: [] }, { role: 'assistant', text: 'Feito por ' + id, toolUses: [{ tool_use_id: 't', tool: 'Read', input: { file_path: 'a.md' } }] }] } as never
+    // A tela lê a forma completa (as: 'api'), com blocos
+    expect((e as { as?: string }).as).toBe('api')
+    return {
+      value: [
+        { role: 'user', content: [{ type: 'text', text: 'Faça isto' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'Feito por ' + id }, { type: 'tool_use', id: 't', name: 'Read', input: { file_path: 'a.md' } }] },
+      ],
+    } as never
   })
   let ui = await montar($)
   for (const id of ['r1', 'f1', 'e1']) {
@@ -106,6 +113,29 @@ test('clicar na linha abre a conversa daquele agente, com o id certo, nos três 
     expect(await ui.find({ type: 'Client' })).toBeDefined()
   }
   expect(lidos).toEqual(expect.arrayContaining(['r1', 'f1', 'e1']))
+  await ui.unmount()
+})
+
+test('a conversa mostra o que cada ferramenta devolveu, o erro em destaque, e pula lembrete e raciocínio vazio', async ($, on) => {
+  preparar(on, { lista: [agente('r1')] })
+  on('session.messages', () => ({
+    value: [
+      { role: 'user', content: [{ type: 'text', text: '<system-reminder>lembrete</system-reminder>' }, { type: 'text', text: 'Conferir a planilha' }] },
+      { role: 'assistant', content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }, { type: 'tool_use', id: 't2', name: 'Read', input: { file_path: 'b.md' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: '\nplanilha.xlsx\noutro.txt' }, { type: 'tool_result', tool_use_id: 't2', is_error: true, content: [{ type: 'text', text: 'File does not exist.' }] }] },
+      { role: 'assistant', content: [{ type: 'thinking', thinking: 'olhar a pasta antes' }, { type: 'text', text: 'Pronto.' }] },
+    ],
+  }) as never)
+  let ui = await montar($)
+  await clicar(ui, { abrir: 'agentes' }, { in: 'agente:r1' } as never)
+  ui = await remontar($, ui)
+  const texto = await tudo(ui)
+  expect(texto).toContain('Conferir a planilha')
+  expect(texto).not.toContain('lembrete')
+  expect(texto).toContain('↳ planilha.xlsx')
+  expect(texto).toContain('↳ File does not exist.')
+  expect(texto).toContain('olhar a pasta antes')
+  expect(texto).toContain('Pronto.')
   await ui.unmount()
 })
 
@@ -263,7 +293,7 @@ test('terminal: texto puro, e o botão de cada linha abre aquele agente na visã
 test('sem visão principal, o botão cai na conversa dentro do painel', async ($, on) => {
   preparar(on, { lista: [agente('r1')] })
   naVisao(on, () => ({ value: { deny: 'no main view here' } }))
-  on('session.messages', () => ({ value: [{ role: 'assistant', text: 'Oi do r1', toolUses: [] }] }) as never)
+  on('session.messages', () => ({ value: [{ role: 'assistant', content: [{ type: 'text', text: 'Oi do r1' }] }] }) as never)
   let ui = await montar($, 'terminal', 80)
   await ui.press({ key: 'ver:r1' })
   ui = await remontar($, ui, 'terminal', 80)

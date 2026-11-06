@@ -38,6 +38,7 @@ const STRINGS = {
     costUnder: 'under 0.1% of the week',
     openChat: 'Open conversation',
     asked: 'Asked',
+    thought: 'Thinking',
     noMessages: 'No messages yet.',
     noConversation: 'This conversation cannot be read.',
     omitted: (n: number) => `${n} earlier entries hidden`,
@@ -62,6 +63,7 @@ const STRINGS = {
     costUnder: 'меньше 0,1% недели',
     openChat: 'Открыть диалог',
     asked: 'Задание',
+    thought: 'Размышление',
     noMessages: 'Сообщений пока нет.',
     noConversation: 'Этот диалог нельзя прочитать.',
     omitted: (n: number) => `скрыто записей: ${n}`,
@@ -86,6 +88,7 @@ const STRINGS = {
     costUnder: 'menos de 0,1% da semana',
     openChat: 'Abrir conversa',
     asked: 'Pedido',
+    thought: 'Pensando',
     noMessages: 'Ainda sem mensagens.',
     noConversation: 'Esta conversa não pode ser lida.',
     omitted: (n: number) => `${n} registros anteriores ocultos`,
@@ -464,14 +467,39 @@ const resumoFerramenta = (tool: string, input: Record<string, unknown>): string 
   return valor ? `${nome} · ${valor.replace(/\s+/g, ' ').slice(0, 90)}` : nome
 }
 
-type LinhaConversa = { papel: 'pedido' | 'resposta' | 'ferramenta'; texto: string }
+type LinhaConversa = { papel: 'pedido' | 'resposta' | 'pensamento' | 'ferramenta' | 'retorno' | 'falha'; texto: string }
 
-const linhasDaConversa = (msgs: SessionMessage[]): { linhas: LinhaConversa[]; omitidas: number } => {
+const cortar = (t: string) => (t.length > MAX_TEXTO ? t.slice(0, MAX_TEXTO) + '…' : t)
+
+// A primeira linha com conteúdo do que a ferramenta devolveu
+const primeiraLinha = (v: unknown): string => {
+  const texto = typeof v === 'string' ? v : Array.isArray(v) ? v.map(x => (x && typeof x === 'object' && 'text' in x ? String((x as { text: unknown }).text) : '')).join('\n') : ''
+  const linha = texto.split('\n').map(l => l.trim()).find(l => l && !l.startsWith('<system-reminder>')) ?? ''
+  return linha.length > 110 ? linha.slice(0, 110) + '…' : linha
+}
+
+type MensagemApi = { role: string; content: { type: string; [k: string]: unknown }[] }
+
+// Lê a forma completa (as: 'api'): traz o que cada ferramenta devolveu e o raciocínio, quando o app o grava.
+// Em nov/2026 o app grava o raciocínio dos agentes vazio (735 de 735 trechos em 40 conversas), então na
+// prática aparecem o pedido, as falas do agente, cada ferramenta e o que ela devolveu.
+const linhasDaConversa = (msgs: MensagemApi[]): { linhas: LinhaConversa[]; omitidas: number } => {
   const todas: LinhaConversa[] = []
   for (const m of msgs) {
-    const texto = m.text.trim()
-    if (texto) todas.push({ papel: m.role === 'user' ? 'pedido' : 'resposta', texto: texto.length > MAX_TEXTO ? texto.slice(0, MAX_TEXTO) + '…' : texto })
-    for (const u of m.toolUses) todas.push({ papel: 'ferramenta', texto: resumoFerramenta(u.tool, u.input) })
+    for (const b of Array.isArray(m.content) ? m.content : []) {
+      if (b.type === 'text' && typeof b.text === 'string' && b.text.trim()) {
+        // Lembretes do sistema entram como texto na forma completa; não são do agente
+        if (/^\s*<system-reminder>/.test(b.text)) continue
+        todas.push({ papel: m.role === 'user' ? 'pedido' : 'resposta', texto: cortar(b.text.trim()) })
+      } else if (b.type === 'thinking' && typeof b.thinking === 'string' && b.thinking.trim()) {
+        todas.push({ papel: 'pensamento', texto: cortar(b.thinking.trim()) })
+      } else if (b.type === 'tool_use') {
+        todas.push({ papel: 'ferramenta', texto: resumoFerramenta(String(b.name ?? ''), (b.input ?? {}) as Record<string, unknown>) })
+      } else if (b.type === 'tool_result') {
+        const linha = primeiraLinha(b.content)
+        if (linha) todas.push({ papel: b.is_error ? 'falha' : 'retorno', texto: linha })
+      }
+    }
   }
   if (todas.length <= MAX_MENSAGENS) return { linhas: todas, omitidas: 0 }
   // O pedido fica, porque diz o que o agente foi fazer; o resto é o final da conversa
@@ -655,7 +683,7 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
     const aberto = p.abertoId === undefined ? undefined : list.find(a => a.id === p.abertoId)
     if (aberto) {
       const lidas = aberto.agentId
-        ? await $.session.messages({ agentId: aberto.agentId }).catch(() => ({ deny: s.noConversation }))
+        ? await $.session.messages({ agentId: aberto.agentId, as: 'api' }).catch(() => ({ deny: s.noConversation }))
         : { deny: s.noConversation }
       const { linhas, omitidas } = Array.isArray(lidas) ? linhasDaConversa(lidas) : { linhas: [], omitidas: 0 }
       const { Svg } = ui as { Svg?: Els['Svg'] }
@@ -676,7 +704,14 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
           {linhas.map((l, i) => (
             <Box key={`m${i}`} flexDirection="column">
               {l.papel === 'pedido' && <Text dimColor>{s.asked}</Text>}
-              {l.papel === 'ferramenta' ? <Text dimColor wrap="truncate-end">{l.texto}</Text> : <Markdown text={l.texto} dimColor={l.papel === 'pedido'} />}
+              {l.papel === 'pensamento' && <Text dimColor italic>{s.thought}</Text>}
+              {l.papel === 'ferramenta' ? (
+                <Text wrap="truncate-end">{l.texto}</Text>
+              ) : l.papel === 'retorno' || l.papel === 'falha' ? (
+                <Text dimColor={l.papel === 'retorno'} color={l.papel === 'falha' ? 'error' : undefined} wrap="truncate-end">{`  ↳ ${l.texto}`}</Text>
+              ) : (
+                <Markdown text={l.texto} dimColor={l.papel !== 'resposta'} />
+              )}
               {i === 0 && omitidas > 0 && <Text dimColor>{s.omitted(omitidas)}</Text>}
             </Box>
           ))}

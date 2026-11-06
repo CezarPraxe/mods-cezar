@@ -770,6 +770,8 @@ function textoDe(x: unknown): string {
 
 // Chamado depois que a ferramenta respondeu: anota o que ficou rodando
 function anotarFundo(e: Record<string, any>, r: unknown, agora: number) {
+  // Comando de subagente: o aviso de término vai para o subagente e nunca baixaria aqui (0.18 ficava com ⚙ 29 fantasma)
+  if (e.agentId) return
   const tipo = FUNDO_TIPO[e.tool]
   if (e.tool === 'TaskStop' || e.tool === 'CronDelete') {
     const alvo = String(e.task_id ?? e.shell_id ?? e.id ?? '')
@@ -797,6 +799,20 @@ function baixarFundo(msg: unknown) {
   const antes = fundo.length
   fundo = fundo.filter((f) => !f.ids.some((i) => ids.includes(i)))
   return fundo.length !== antes
+}
+
+// Fim de turno da conversa principal: o engine manda a lista real (background_tasks e session_crons) e ela substitui
+// a anotada. Subagente fica de fora: ele já faz o Clawd andar.
+const FUNDO_TIPO_ENGINE: Record<string, string> = { shell: 'comando', local_bash: 'comando', monitor: 'monitor', workflow: 'workflow' }
+function fundoDoEngine(e: { background_tasks?: { id: string; type: string; description?: string; command?: string; name?: string }[]; session_crons?: { id: string; prompt?: string }[] }) {
+  if (!Array.isArray(e.background_tasks) && !Array.isArray(e.session_crons)) return false
+  const tarefas = (e.background_tasks ?? [])
+    .filter((t) => t.type !== 'subagent' && !/agent/i.test(t.type))
+    .map((t) => ({ ids: [t.id], tipo: FUNDO_TIPO_ENGINE[t.type] ?? t.type, desc: String(t.description || t.name || t.command || t.type).replace(/\s+/g, ' ').slice(0, 60) }))
+  const crons = (e.session_crons ?? []).map((c) => ({ ids: [c.id], tipo: 'agendado', desc: String(c.prompt ?? 'agendado').replace(/\s+/g, ' ').slice(0, 60) }))
+  const antes = fundo.map((f) => f.ids.join()).join('|')
+  fundo = [...tarefas, ...crons]
+  return fundo.map((f) => f.ids.join()).join('|') !== antes
 }
 
 function fundoAtivo(agora: number) {
@@ -1020,6 +1036,14 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
   })
 
 
+  // Fim de turno da conversa principal: a lista de segundo plano passa a ser a do engine
+  on('classic.Stop', async ($, e, next) => {
+    try {
+      if (fundoDoEngine(e as Parameters<typeof fundoDoEngine>[0])) $.ui.invalidate('ui.render')
+    } catch {}
+    return next(e)
+  })
+
   // Tarefa em segundo plano terminou: o aviso entra como linha da conversa
   on('session.append', async ($, e, next) => {
     try {
@@ -1040,6 +1064,10 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
     }
     if (e.element === 'salvar') {
       pedirSalvar($)
+      return {}
+    }
+    if (e.element === 'fundo') {
+      mostrarFundo($)
       return {}
     }
     if (await cliqueNoPainel($, e.element)) return {}
@@ -1106,13 +1134,11 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
         ...(() => {
           const ativos = fundoAtivo(now)
           if (!ativos.length) return []
-          return [
-            elements.Button({
-              key: 'fundo',
-              label: '⚙ ' + ativos.length,
-              onPress: () => $.ui.toast('Em segundo plano: ' + ativos.map((f) => f.tipo + ' · ' + f.desc).join(' | ')),
-            }),
-          ]
+          if (e.surface === 'desktop') {
+            const p = pilulaFundo(ativos.length)
+            return [iconeClicavel(elements, 'fundo', p.source, p.alt, p.width, p.height)]
+          }
+          return [elements.Button({ key: 'fundo', label: '⚙ ' + ativos.length, onPress: () => mostrarFundo($) })]
         })(),
         ...(e.surface === 'desktop'
           ? [
@@ -1574,6 +1600,21 @@ ${degrade('oz', 'o-l', [[0, 0.17], [0.4, 0.09], [0.75, 0.02], [1, 0]], 'cx=".5" 
 function pilulaCache(texto: string, status: Status): Pilula {
   const relogio = `<circle cx="14" cy="12" r="4.5" fill="none" class="a-mu" stroke-width="1.2"/><path d="M14 9.5v2.5l1.7 1.2" fill="none" class="a-mu" stroke-width="1.2" stroke-linecap="round"/>`
   return pilula(23 + larguraPilula(texto, 12) + 12, relogio + textoPilula(23, trecho(texto, status === 'success' ? 'tx' : status, 0, 500)), `cache ${texto}`)
+}
+
+// Segundo plano: engrenagem e quantas tarefas rodam, no mesmo desenho das outras pílulas
+function pilulaFundo(n: number): Pilula {
+  const dentes = Array.from({ length: 8 }, (_, i) => {
+    const a = (i * Math.PI) / 4
+    return `<line x1="${(14 + Math.cos(a) * 3.6).toFixed(2)}" y1="${(12 + Math.sin(a) * 3.6).toFixed(2)}" x2="${(14 + Math.cos(a) * 5.6).toFixed(2)}" y2="${(12 + Math.sin(a) * 5.6).toFixed(2)}" class="a-mu" stroke-width="1.7" stroke-linecap="round"/>`
+  }).join('')
+  const engrenagem = `<style>@keyframes gira{to{transform:rotate(45deg)}}.gira{transform-origin:14px 12px;animation:gira 3s linear infinite}</style><g class="gira">${dentes}<circle cx="14" cy="12" r="3.6" fill="none" class="a-mu" stroke-width="1.3"/><circle cx="14" cy="12" r="1.2" class="mu"/></g>`
+  const texto = String(n)
+  return pilula(24 + larguraPilula(texto, 12) + 12, engrenagem + textoPilula(24, trecho(texto, 'tx', 0, 600)), `${n} em segundo plano`)
+}
+
+function mostrarFundo($: EngineInterface) {
+  $.ui.toast('Em segundo plano: ' + fundo.map((f) => f.tipo + ' · ' + f.desc).join(' | '))
 }
 
 // Toda pílula vai numa caixa com key: é a caixa que entra na linha que quebra

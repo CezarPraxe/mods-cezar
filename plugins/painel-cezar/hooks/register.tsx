@@ -577,6 +577,11 @@ async function agentesFimTurno($: EngineInterface, e: any): Promise<void> {
     await update($, agents, list =>
       list.map(a => {
         if (a.agentId !== agentId) return a
+        // Ainda em voo (visto no último Stop): a rodada acabou, o agente não
+        if (status === 'done' && (emVoo.ids.has(agentId) || emVoo.ids.has(a.id) || emVoo.descs.has(norm(a.description)))) {
+          esperando.add(a.id)
+          return a
+        }
         // A run whose steps went unseen still gets the turn's own sum.
         const fallback = a.steps === 0 && e.usage
         return {
@@ -587,6 +592,43 @@ async function agentesFimTurno($: EngineInterface, e: any): Promise<void> {
         }
       }),
     )
+    await update($, now, () => at)
+  }
+}
+
+// O fim de turno do agente não é o fim dele: o agente que dispara tarefa em segundo plano termina a rodada e
+// fica esperando o aviso. O app manda, no Stop e no SubagentStop, o que ainda está em voo; subagente listado ali
+// continua rodando, mesmo que o painel já o tenha dado por concluído.
+// Agentes cuja rodada acabou com coisa em voo: saem de 'rodando' quando somem da lista do app
+const esperando = new Set<string>()
+let emVoo = { ids: new Set<string>(), descs: new Set<string>() }
+type EmVoo = { id: string; type: string; status?: string; description?: string }
+async function agentesEmVoo($: EngineInterface, tarefas: EmVoo[] | undefined, esteAgente?: string): Promise<void> {
+  if (!Array.isArray(tarefas)) return
+  const subs = tarefas.filter(t => t.type === 'subagent' || /agent/i.test(t.type))
+  const ids = new Set(subs.map(t => t.id))
+  const descs = new Set(subs.map(t => norm(t.description ?? '')).filter(Boolean))
+  // Agente cuja própria rodada acabou mas que deixou comando/monitor em voo também segue vivo
+  const temFundo = esteAgente !== undefined && tarefas.some(t => !(t.type === 'subagent' || /agent/i.test(t.type)))
+  emVoo = { ids: new Set([...ids, ...(temFundo && esteAgente ? [esteAgente] : [])]), descs }
+  const vivo = (a: AgentRun) =>
+    ids.has(a.id) || (a.agentId !== undefined && ids.has(a.agentId)) || descs.has(norm(a.description)) || (temFundo && a.agentId === esteAgente)
+  let mudou = false
+  await update($, agents, list =>
+    list.map(a => {
+      if (a.status === 'running' && esperando.has(a.id) && !vivo(a)) {
+        esperando.delete(a.id)
+        mudou = true
+        return { ...a, status: 'done', endedAt: Date.now() }
+      }
+      if (a.status === 'running' || a.status === 'stopped' || !vivo(a)) return a
+      esperando.add(a.id)
+      mudou = true
+      return { ...a, status: 'running', endedAt: undefined, erroVisto: undefined }
+    }),
+  )
+  if (mudou) {
+    const at = await $.clock.now()
     await update($, now, () => at)
   }
 }
@@ -1075,8 +1117,19 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
   on('classic.Stop', async ($, e, next) => {
     try {
       if (fundoDoEngine(e as Parameters<typeof fundoDoEngine>[0])) $.ui.invalidate('ui.render')
+      await agentesEmVoo($, (e as { background_tasks?: EmVoo[] }).background_tasks)
     } catch {}
     return next(e)
+  })
+
+  // Fim de rodada de um subagente: se ele ainda tem coisa em voo, não acabou
+  on('classic.SubagentStop', async ($, e, next) => {
+    const r = await next(e)
+    try {
+      const ev = e as { agent_id?: string; background_tasks?: EmVoo[] }
+      await agentesEmVoo($, ev.background_tasks, ev.agent_id)
+    } catch {}
+    return r
   })
 
   // Tarefa em segundo plano terminou: o aviso entra como linha da conversa

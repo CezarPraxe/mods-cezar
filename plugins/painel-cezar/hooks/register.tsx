@@ -5,6 +5,13 @@ import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface, PluginOptions, Register, SessionContextUsage, SessionMessage, SessionRateLimit, ThemeSetArgs, Timer } from 'claude-code'
 import type { AgentRun, AgentStatus, Panel } from '../types'
 import { makeColors } from './make-colors.js'
+import { desenhar as cenaFundo } from './cena/fundo.js'
+import { desenhar as cenaLua } from './cena/lua.js'
+import { desenhar as cenaSelo } from './cena/selo.js'
+import { desenhar as cenaAgua } from './cena/agua.js'
+import { desenhar as cenaPeixes } from './cena/peixes.js'
+import { desenhar as cenaClawd } from './cena/clawd.js'
+import type { DadosCena } from './cena/tipos'
 
 // Estado do painel de agentes. Prefixo ag_ para não colidir com os valores da faixa, mais abaixo no arquivo.
 const agents = atom({ plugin: 'painel-cezar', key: 'ag_agents' } as const, [])
@@ -1059,10 +1066,48 @@ const GOTA_FUNDO = '.fd{fill:#E9E7E1}.mu{stroke:#6F6C65}.tx{stroke:#2B2A27}@medi
 const ICONE_GOTA_CHEIA = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" role="img" aria-label="Tema IMERSÃO ligado"><title>Tema IMERSÃO ligado</title><style>${GOTA_FUNDO}.bo{animation:bo 3.6s ease-in-out infinite}@keyframes bo{0%,100%{transform:translateY(.4px)}50%{transform:translateY(-.7px)}}.ha{animation:ha 3.6s ease-in-out infinite}@keyframes ha{0%,100%{opacity:.35}50%{opacity:.65}}.es{transform-origin:18.6px 5.8px;animation:es 2.4s ease-in-out infinite}@keyframes es{0%,100%{opacity:.25;transform:scale(.6)}45%{opacity:1;transform:scale(1)}}@media (prefers-reduced-motion:reduce){.bo,.ha,.es{animation:none}}</style><defs><filter id="gb" filterUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><feGaussianBlur stdDeviation="1.6"/></filter></defs><rect class="fd" width="24" height="24" rx="12"/><g class="bo"><g filter="url(#gb)" class="ha"><path d="${GOTA}" fill="#56B1E1"/></g><path d="${GOTA}" fill="#56B1E1" class="tx" stroke-width="1.3"/><path d="M9.6 13.4a2.6 2.6 0 0 0 1.7 2.5" fill="none" stroke="#FFF8E9" stroke-width="1.2" stroke-linecap="round"/></g><path class="es" d="M18.6 4.2q0 1.6 1.6 1.6q-1.6 0-1.6 1.6q0-1.6-1.6-1.6q1.6 0 1.6-1.6Z" fill="#F2B830"/></svg>`
 const ICONE_GOTA_VAZIA = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" role="img" aria-label="Claude normal"><title>Claude normal</title><style>${GOTA_FUNDO}</style><rect class="fd" width="24" height="24" rx="12"/><path d="${GOTA}" fill="none" class="mu" stroke-width="1.4"/></svg>`
 
-// Cena provisória (grão, estrelinhas, xadrez no pé); troca pela cena aprovada
-const estrelaCena = (x: number, y: number, r: number, d: number) =>
-  `<path class="e" style="animation-delay:${d}s;transform-origin:${x}px ${y}px" d="M${x} ${y - r}Q${x} ${y} ${x + r} ${y}Q${x} ${y} ${x} ${y + r}Q${x} ${y} ${x - r} ${y}Q${x} ${y} ${x} ${y - r}Z"/>`
-const CENA_IMERSAO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice"><style>.e{fill:#F2B830;opacity:.55;animation:p 6s ease-in-out infinite}@keyframes p{0%,100%{opacity:.25;transform:scale(.85)}50%{opacity:.7;transform:scale(1)}}.g{opacity:.08}@media (prefers-color-scheme: light){.e{fill:#E8742A;opacity:.4}.g{opacity:.12}}</style><defs><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0.04 0 0 0 0 0.11 0 0 0 0 0.24 0 0 0 1 0"/></filter><pattern id="x" width="40" height="40" patternUnits="userSpaceOnUse"><rect width="20" height="20" fill="#0B1C3D"/><rect x="20" y="20" width="20" height="20" fill="#0B1C3D"/></pattern></defs><rect class="g" width="1600" height="1000" filter="url(#n)"/>${estrelaCena(90, 110, 22, 0)}${estrelaCena(170, 70, 11, 1.5)}${estrelaCena(1500, 140, 26, 3)}${estrelaCena(1430, 90, 12, 4.2)}${estrelaCena(80, 820, 14, 2.2)}${estrelaCena(1520, 780, 18, 5)}<rect y="985" width="1600" height="15" fill="url(#x)" opacity=".18"/></svg>`
+// Cena v2 (estúdio: oficina\estudio\tema-imersao\v2): lua = contexto, água = semana e meta, peixes = subagentes,
+// Clawd = estado do Claude, selo = aviso. Os dados vão em degraus: a cena só muda (e as animações só recomeçam)
+// quando um degrau muda.
+const degrau = (v: number, passo: number) => Math.max(0, Math.min(100, Math.round(v / passo) * passo))
+
+async function dadosDaCena($: EngineInterface): Promise<DadosCena> {
+  const agora = await $.clock.now()
+  const ctx = degrau(context?.percent ?? 0, 10)
+  const limite = rateLimits.find((l) => l.kind === 'seven_day')
+  const sem = limite ? readLimit(limite, agora) : null
+  const semana = degrau(sem?.used ?? 0, 5)
+  const ideal = degrau(sem?.elapsed ?? 0, 5)
+  const lista = await read($, agents)
+  const agentes = Math.min(12, lista.filter((a) => a.status === 'running').length)
+  const erros = Math.min(4, lista.filter((a) => a.status === 'failed' && !a.erroVisto).length)
+  const estado: DadosCena['estado'] = clawdEstado === 'panico' ? 'precisa' : clawdEstado === 'trabalhando' || agentes > 0 ? 'trabalhando' : 'vez'
+  // Cache só importa enquanto a vez é do Cezar: avisa nos últimos 5 minutos antes de esfriar
+  const resta = ultimaResposta ? ultimaResposta + cacheMs() - agora : 0
+  const aviso: DadosCena['aviso'] = ctx >= 70 ? 'compactar' : estado === 'vez' && resta > 0 && resta <= 5 * 60_000 ? 'cache' : null
+  return { ctx, semana, ideal, sup: 740 - semana * 2, estado, agentes, erros, aviso }
+}
+
+let cenaGuardada = { chave: '', svg: '' }
+function montarCena(d: DadosCena): string {
+  const chave = JSON.stringify(d)
+  if (chave === cenaGuardada.chave) return cenaGuardada.svg
+  const pecas = { fundo: cenaFundo, lua: cenaLua, selo: cenaSelo, agua: cenaAgua, peixes: cenaPeixes, clawd: cenaClawd }
+  const saida: Record<string, ReturnType<typeof cenaFundo>> = {}
+  for (const [nome, desenhar] of Object.entries(pecas)) {
+    // Peça que falha fica de fora; o resto da cena continua
+    try {
+      saida[nome] = desenhar(d)
+    } catch {}
+  }
+  const camada = (nome: string, parte: 'svg' | 'tras' | 'frente' = 'svg') => saida[nome]?.[parte] ?? ''
+  const css = Object.values(saida).map((r) => r.css ?? '').join('')
+  const defs = Object.values(saida).map((r) => r.defs ?? '').join('')
+  const corpo = camada('fundo') + camada('lua') + camada('selo') + camada('agua', 'tras') + camada('peixes') + camada('clawd') + camada('agua', 'frente')
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice"><style>${css}</style><defs>${defs}</defs><rect width="1600" height="1000" fill="#06122B"/>${corpo}</svg>`
+  cenaGuardada = { chave, svg }
+  return svg
+}
 
 // The terminal draws the time marker in this color
 const MARKER_COLOR = 'cyan'
@@ -1195,12 +1240,14 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
   })
 
   // A cena roda para o tema de qualquer mod: só desenha a nossa
-  on('ui.render', { component: 'Backdrop' }, ($, e, next) => {
+  on('ui.render', { component: 'Backdrop' }, async ($, e, next) => {
     if (e.surface !== 'desktop' && e.surface !== 'mobile') return next(e)
     const p = e.props as { plugin?: string; scene?: string }
     if (p.plugin !== $.plugin.name || p.scene !== TEMA_CENA) return next(e)
     const { Svg } = $.ui.resolve(e)
-    return Svg({ source: CENA_IMERSAO, alt: 'Papel do IMERSÃO, com grão e estrelinhas', isInteractive: false })
+    const d = await dadosDaCena($)
+    const alt = `Noite do IMERSÃO: contexto ${d.ctx}%, semana ${d.semana}% (meta ${d.ideal}%), ${d.agentes} agentes rodando`
+    return Svg({ source: montarCena(d), alt, isInteractive: false })
   })
 
   // Clique numa área invisível: Clawd da faixa, botões e linhas do painel de agentes

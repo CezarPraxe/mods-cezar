@@ -68,3 +68,25 @@ test('quem escolheu o Claude normal começa sem tema; a gota religa, grava, e de
   expect(memoria.get('tema')).toBe('normal')
   expect(await gota($)).toBe('vazia')
 })
+
+test('a cena desenha as seis peças com os dados da sessão e cabe no limite do app', async ($, on) => {
+  preparar(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'painel-cezar', component: 'Backdrop', surface: 'desktop', props: { plugin: 'painel-cezar', scene: 'imersao', glass: false } } as never)
+  const desenho = JSON.stringify(await (ui as unknown as { drawn: () => Promise<unknown> }).drawn())
+  await ui.unmount()
+  expect(desenho).toContain('contexto 10%')
+  for (const prefixo of ['fu-', 'lu-', 'ag-', 'cl-']) expect(desenho).toContain(prefixo)
+  const fonte = /<svg[^]*<\/svg>/.exec(JSON.parse(desenho.replace(/^[^]*?"source":/, '[').replace(/,"alt"[^]*$/, ']'))[0] ?? '')?.[0] ?? ''
+  expect(fonte.length).toBeGreaterThan(20000)
+  expect(fonte.length).toBeLessThan(131072)
+})
+
+test('cena de outro mod não é desenhada por este', async ($, on) => {
+  preparar(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'painel-cezar', component: 'Backdrop', surface: 'desktop', props: { plugin: 'outro', scene: 'imersao', glass: false } } as never)
+  const desenho = JSON.stringify(await (ui as unknown as { drawn: () => Promise<unknown> }).drawn())
+  await ui.unmount()
+  expect(desenho).not.toContain('lu-')
+})

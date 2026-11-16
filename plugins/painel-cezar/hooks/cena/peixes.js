@@ -135,12 +135,14 @@ function bolhas(sup) {
 }
 
 // rótulo no estilo da lua, no ar, borda direita em x=412 (a mesma do rótulo da água), 8 acima dele
-function rotulo(ag, er, sup, ideal) {
+function rotulo(ag, er, sup, ideal, semana) {
   if (!ag && !er) return ''
   const txt = (ag ? `agentes ${ag}` : '') + (ag && er ? ' · ' : '') + (er ? `erro ${er}` : '')
   const w = Math.round(txt.length * 9.4 + 18)
   const yb = Math.min(sup, 740 - (ideal || 0) * 2) - 20 - 26 - 8 // base do meu retângulo
-  const x = 412 - w
+  // mesma borda direita do rótulo da água (agua.js), que começa depois da barra lateral do app
+  const wAgua = Math.round(`semana ≈${semana}% · meta ≈${ideal}%`.length * 9.4 + 18)
+  const x = Math.max(412, 205 + wAgua) - w
   const y = n(yb - 26)
   return `<g><rect x="${x}" y="${y}" width="${w}" height="26" rx="6" fill="#0A1834" stroke="${MAR}" stroke-width="3"/><rect x="${x}" y="${y}" width="${w}" height="26" rx="6" fill="none" stroke="${er ? ERRO : '#F3EAD3'}" stroke-width="1.6" opacity=".7"/><text x="403" y="${n(yb - 8)}" text-anchor="end" font-family="monospace" font-size="14" font-weight="bold" letter-spacing="1" fill="#F3EAD3">${txt}</text></g>`
 }
@@ -157,6 +159,6 @@ export function desenhar(d) {
   const sw = (lista, T, D) => (lista.length ? `<g class="pe-sw" style="--pe-T:${T}s;--pe-D:${D}s">${lista.join('')}</g>` : '')
   let svg = bolhas(sup) + and.join('') + sw(esq, 9.5, -2) + sw(dir, 11.5, -6)
   for (let j = 0; j < er; j++) svg += erro(j, sup)
-  svg += rotulo(ag, er, sup, d.ideal)
+  svg += rotulo(ag, er, sup, d.ideal, d.semana)
   return { css: CSS, defs: DEFS, svg }
 }

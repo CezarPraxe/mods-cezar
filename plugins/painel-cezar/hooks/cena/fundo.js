@@ -13,7 +13,7 @@ function gerador(semente) {
 }
 
 const r1 = (n) => Math.round(n * 10) / 10
-const LUA = [270, 270, 128]
+const LUA = [300, 270, 128]
 const SELO = [1330, 270, 128]
 const dentro = (x, y, c) => (x - c[0]) ** 2 + (y - c[1]) ** 2 < c[2] ** 2
 

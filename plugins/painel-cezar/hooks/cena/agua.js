@@ -256,10 +256,10 @@ export function desenhar(d) {
       '</g>',
   )
   // rótulo no estilo único da lua: sempre no ar, terminando colado na estrela da esquerda
-  const txt = `semana ${semana}% · meta ${ideal}%`
+  const txt = `semana ≈${semana}% · meta ≈${ideal}%`
   const wr = Math.round(txt.length * 9.4 + 18)
   const yb = Math.min(sup, yi) - 20 // base do retângulo
-  const xd = 412 // borda direita do retângulo
+  const xd = Math.max(412, 205 + wr) // borda direita: o texto começa depois da barra lateral do app
   const rotulo =
     `<g><rect x="${xd - wr}" y="${yb - 26}" width="${wr}" height="26" rx="6" fill="#0A1834" stroke="#0B1C3D" stroke-width="3"/>` +
     `<rect x="${xd - wr}" y="${yb - 26}" width="${wr}" height="26" rx="6" fill="none" stroke="${abaixo ? '#F2B830' : '#F3EAD3'}" stroke-width="1.6" opacity=".7"/>` +

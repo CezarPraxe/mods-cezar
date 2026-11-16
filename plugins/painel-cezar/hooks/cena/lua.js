@@ -1,6 +1,6 @@
 // Lua do contexto (prefixo lu-). ctx 0..100 = fase: 0 nova, 50 meia, 100 cheia (crescente, luz à direita).
 // 70+ esquenta para laranja e pulsa; 90+ ganha anel de pulso. Sem azar: nenhuma aleatoriedade.
-const CX = 270, CY = 270, R = 80
+const CX = 300, CY = 270, R = 80
 const CREME = [243, 234, 211], LARANJA = [232, 116, 42]
 
 const n1 = (v) => Math.round(v * 10) / 10
@@ -89,7 +89,7 @@ ${crLuz}
 <g>
 <rect x="${CX - 56}" y="${CY + R + 20}" width="112" height="28" rx="6" fill="#0A1834" stroke="#0B1C3D" stroke-width="3"/>
 <rect x="${CX - 56}" y="${CY + R + 20}" width="112" height="28" rx="6" fill="none" stroke="${quente ? '#E8742A' : '#F3EAD3'}" stroke-width="1.6" opacity=".7"/>
-<text x="${CX}" y="${CY + R + 40}" text-anchor="middle" font-family="monospace" font-size="16" font-weight="bold" letter-spacing="1" fill="${corTexto}">ctx ${ctx}%</text>
+<text x="${CX}" y="${CY + R + 40}" text-anchor="middle" font-family="monospace" font-size="16" font-weight="bold" letter-spacing="1" fill="${corTexto}">ctx ≈${ctx}%</text>
 </g>
 </g>`
 

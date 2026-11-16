@@ -1032,7 +1032,8 @@ const { theme: TEMA_CORES } = makeColors({
   light: { gray: { anchors: { 'surface-0': '#F3EAD3', 'surface-1': '#F8F0DD', 'surface-2': '#FFF8E9', 'text-primary': '#0B1C3D', 'text-secondary': '#2A3B5C', 'text-muted': '#4A5873' } } },
   dark: { gray: { anchors: { 'surface-0': '#06122B', 'surface-1': '#0A1834', 'surface-2': '#0E1E3D', 'surface-3': '#122545', 'text-primary': '#F3EAD3', 'text-secondary': '#D3CDBB', 'text-muted': '#A9AEB5' } } },
 })
-const TEMA: ThemeSetArgs = { colors: TEMA_CORES, backdrop: { scene: TEMA_CENA, glass: false } }
+// Vidro fosco: a barra lateral, o painel da direita e a caixa de mensagem deixam a cena aparecer borrada, sem tampar a água
+const TEMA: ThemeSetArgs = { colors: TEMA_CORES, backdrop: { scene: TEMA_CENA, glass: { blur: 18, tint: '#06122B', opacity: 0.72 } } }
 // Os cinzas e as cores de estado das pílulas, trocados pelos da marca quando o tema está ligado
 const TINTA_IMERSAO: Record<string, string> = {
   E9E7E1: 'E6D9B8', '2B2A27': '0B1C3D', '6F6C65': '4A5873', '2F8F5B': '2F7D45', B07C1E: 'B5790A', CF4A40: 'C23B26',
@@ -1088,6 +1089,8 @@ async function dadosDaCena($: EngineInterface): Promise<DadosCena> {
   return { ctx, semana, ideal, sup: 740 - semana * 2, estado, agentes, erros, aviso }
 }
 
+// Véu escuro atrás do texto da conversa: o fundo é vivo, o texto creme precisa de chão escuro (pedido de 16/11)
+const VEU_TEXTO = '<defs><linearGradient id="veu-h" x1="0" x2="1600" y1="0" y2="0" gradientUnits="userSpaceOnUse"><stop offset=".2" stop-color="#040B1D" stop-opacity="0"/><stop offset=".3" stop-color="#040B1D" stop-opacity=".72"/><stop offset=".72" stop-color="#040B1D" stop-opacity=".72"/><stop offset=".82" stop-color="#040B1D" stop-opacity="0"/></linearGradient></defs><rect width="1600" height="1000" fill="url(#veu-h)"/>'
 let cenaGuardada = { chave: '', svg: '' }
 function montarCena(d: DadosCena): string {
   const chave = JSON.stringify(d)
@@ -1103,7 +1106,7 @@ function montarCena(d: DadosCena): string {
   const camada = (nome: string, parte: 'svg' | 'tras' | 'frente' = 'svg') => saida[nome]?.[parte] ?? ''
   const css = Object.values(saida).map((r) => r.css ?? '').join('')
   const defs = Object.values(saida).map((r) => r.defs ?? '').join('')
-  const corpo = camada('fundo') + camada('lua') + camada('selo') + camada('agua', 'tras') + camada('peixes') + camada('clawd') + camada('agua', 'frente')
+  const corpo = camada('fundo') + VEU_TEXTO + camada('lua') + camada('selo') + camada('agua', 'tras') + camada('peixes') + camada('clawd') + camada('agua', 'frente')
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice"><style>${css}</style><defs>${defs}</defs><rect width="1600" height="1000" fill="#06122B"/>${corpo}</svg>`
   cenaGuardada = { chave, svg }
   return svg

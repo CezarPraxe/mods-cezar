@@ -1,6 +1,6 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 16/11/2026 · instalada a **0.21.3** (tema IMERSÃO: véu escuro atrás do texto, sem vidro) · público em github.com/CezarPraxe/mods-cezar
+Atualizado: 16/11/2026 · instalada a **0.22.0** (tema IMERSÃO removido; código da 0.20.1) · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
@@ -35,13 +35,7 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
   - **Fim do agente:** `aborted` vira `stopped` (interrompido por ele), `refusal` e `error` viram erro. Erro fica no topo até ser aberto (`erroVisto`) e aí desce para os concluídos.
   - **Fantasias por função:** contador, pesquisador, revisor, redator, advogado, cobrança, atendente, executor, obra longa, animador, exceção, explorador; `other` é o Clawd sem nada. Redesenhadas em 31/10 sobre `CLAWD_TRABALHANDO`, **sem garra**: nada segura nada, o objeto fica encostado ou no chão. Regras em `funcaoDe`. Andam na metade da velocidade da faixa, cada uma na sua fase (`faseDe`, pelo id).
   - **Clique na linha abre a conversa do agente.** No desktop o clique vem da área invisível (`clawd.jsx`, key `agente:<id>`, hook `ui.message`, `cliqueNoPainel`) e a conversa abre **dentro do painel**, lida por `$.session.messages({ agentId })`, com botão de voltar. No terminal e no editor a linha tem Button: `verAgente` chama `$.ui.view`, e se recusar cai na conversa do painel.
-- **Tema IMERSÃO (0.21.0, aprovado em 16/11):** cores do app (`makeColors`, creme e azul-noite) e uma cena atrás da conversa, só desktop e modo escuro. Mora no próprio painel porque a faixa precisa saber se o tema está ligado.
-  - **Gota** ao lado do disquete (`ICONE_GOTA_CHEIA` boiando e piscando = tema ligado; `ICONE_GOTA_VAZIA` = Claude normal). Clique alterna, grava `tema` no `$.store` (`imersao`/`normal`) e chama `$.theme.set` ou `$.theme.clear`. Com o tema ligado, as pílulas passam pela `tingir` (cinzas e cores de estado trocados pelos da marca).
-  - **Cena** = seis peças em `hooks\cena\` (fundo, lua, selo, água, peixes, Clawd), feitas cada uma por um agente com contrato comum e crítico Opus. Fonte, contrato, montador e prévia no estúdio: `C:\Users\Cezar\praxedes\oficina\estudio\tema-imersao\v2\` (`CONTRATO.md`, `montar.mjs`, `partes\`). Mexer lá, conferir com `node montar.mjs --prints` e copiar para `hooks\cena\`.
-  - **Dados** (`dadosDaCena`, em degraus para a animação só recomeçar quando muda): lua = contexto (10 em 10; laranja a partir de 70), água = semana (5 em 5) com linha da meta = o contorno branco da faixa, peixes = subagentes rodando (até 12) e peixe cinza de barriga para cima = erro não visto, Clawd = vez/trabalhando/pânico, selo = "COMPACTE" (ctx ≥ 70) ou "CACHE" (vez do Cezar e cache nos últimos 5 min).
-  - **Contraste e vidro (0.21.1 e 0.21.2):** véu escuro (`VEU_TEXTO`, degradê #040B1D a 72% entre 30% e 72% da largura) atrás da coluna do texto. Lua em x 300 e rótulos depois da barra lateral, números com "≈" (a cena anda em degraus). O `glass` do desktop fosca os painéis por cima da cena inteira, inclusive a conversa: na 0.21.1 (desfoque 18, 72%) a cena sumiu; na 0.21.2 (desfoque 2, 22%) também sumiu, embora o app respondesse isDrawn e desenhasse a cena. Qualquer vidro apaga a cena: fica `glass: false` (0.21.3).
-  - **Barra lateral:** pasta e sessão não se diferenciam pelo tema; só a Anthropic mudaria isso. O Cezar usa as seções.
-  - **Reprovados:** o mascote Imerso (duas versões, "horrível"), régua de profundidade, modo claro e celular na cena.
+- **Tema IMERSÃO removido (0.22.0, 16/11):** existiu da 0.21.0 à 0.21.3 (cores da marca, cena viva atrás da conversa, gota ao lado do disquete). O Cezar enjoou e mandou voltar o mod ao que era antes do tema; a 0.22.0 é o código da 0.20.1. Não propor tema de novo sem ele pedir. A cena e o contrato continuam no estúdio, em `oficina/estudio/tema-imersao/v2` (na pasta praxedes). Lição do app: com qualquer `glass` a cena some; sem vidro, o painel da caixa de mensagem fica sólido e tampa o pé da cena.
 
 ## Decisões
 - Português, mínimo de texto, visual uniforme: chip com fundo neutro, cor só no número e na barra. Horário de Rondônia (UTC−4).
@@ -80,7 +74,7 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
 - Engine 2.1.295 trouxe `$.ui.notify` (notificação do Windows), `$.ui.selection` (texto selecionado) e `ui.fault`. O painel direito novo do app (Ambiente, Contexto, Conectores, Saídas) não aceita mod.
 
 ## Pendente / próximo passo
-- **Próximo passo:** conferir no app a 0.21.3: cena aparecendo e se mexendo, texto legível no centro; depois o pânico e o selo ao vivo e se a animação reinicia demais com subagentes entrando e saindo.
+- **Próximo passo:** nenhum pendente do tema; conferir que a 0.22.0 carregou sem cena e sem gota.
 - O painel de Agentes ficou vazio ("painel-cezar has not drawn in this pane") no chat "PWA receitas e estoque" em 15/10, com subagente rodando. No teste isolado ele desenha. A 0.14.1 mostra o erro em vermelho no próprio painel: o Cezar fecha o painel, clica no Clawd (ou arquiva/desarquiva) e manda o print do texto vermelho. Com ele, corrigir a causa.
 - **Ideias oferecidas, sem resposta do Cezar:** notificação do Windows (subagente terminou, Clawd em pânico, 5h > 90%) e a lista de tarefas (TodoWrite/TaskCreate) na faixa ou no painel.
 - **Conferido no app:** 💾; hora injetada; 📦 (0.13.1); fantasias por função no painel (0.14.0, "amei"); limites por sessão (0.13.3, a faixa bate com o painel do desktop).

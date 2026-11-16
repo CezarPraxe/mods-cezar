@@ -1033,7 +1033,7 @@ const { theme: TEMA_CORES } = makeColors({
   dark: { gray: { anchors: { 'surface-0': '#06122B', 'surface-1': '#0A1834', 'surface-2': '#0E1E3D', 'surface-3': '#122545', 'text-primary': '#F3EAD3', 'text-secondary': '#D3CDBB', 'text-muted': '#A9AEB5' } } },
 })
 // Vidro fosco: a barra lateral, o painel da direita e a caixa de mensagem deixam a cena aparecer borrada, sem tampar a água
-const TEMA: ThemeSetArgs = { colors: TEMA_CORES, backdrop: { scene: TEMA_CENA, glass: { blur: 18, tint: '#06122B', opacity: 0.72 } } }
+const TEMA: ThemeSetArgs = { colors: TEMA_CORES, backdrop: { scene: TEMA_CENA, glass: { blur: 2, tint: '#06122B', opacity: 0.22 } } }
 // Os cinzas e as cores de estado das pílulas, trocados pelos da marca quando o tema está ligado
 const TINTA_IMERSAO: Record<string, string> = {
   E9E7E1: 'E6D9B8', '2B2A27': '0B1C3D', '6F6C65': '4A5873', '2F8F5B': '2F7D45', B07C1E: 'B5790A', CF4A40: 'C23B26',

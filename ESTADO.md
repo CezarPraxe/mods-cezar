@@ -1,6 +1,6 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 06/11/2026 · instalada a **0.19.0** (⚙ corrigido e em pílula) · público em github.com/CezarPraxe/mods-cezar
+Atualizado: 16/11/2026 · instalada a **0.21.0** (tema IMERSÃO com cena viva e a gota) · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.
@@ -35,6 +35,11 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
   - **Fim do agente:** `aborted` vira `stopped` (interrompido por ele), `refusal` e `error` viram erro. Erro fica no topo até ser aberto (`erroVisto`) e aí desce para os concluídos.
   - **Fantasias por função:** contador, pesquisador, revisor, redator, advogado, cobrança, atendente, executor, obra longa, animador, exceção, explorador; `other` é o Clawd sem nada. Redesenhadas em 31/10 sobre `CLAWD_TRABALHANDO`, **sem garra**: nada segura nada, o objeto fica encostado ou no chão. Regras em `funcaoDe`. Andam na metade da velocidade da faixa, cada uma na sua fase (`faseDe`, pelo id).
   - **Clique na linha abre a conversa do agente.** No desktop o clique vem da área invisível (`clawd.jsx`, key `agente:<id>`, hook `ui.message`, `cliqueNoPainel`) e a conversa abre **dentro do painel**, lida por `$.session.messages({ agentId })`, com botão de voltar. No terminal e no editor a linha tem Button: `verAgente` chama `$.ui.view`, e se recusar cai na conversa do painel.
+- **Tema IMERSÃO (0.21.0, aprovado em 16/11):** cores do app (`makeColors`, creme e azul-noite) e uma cena atrás da conversa, só desktop e modo escuro. Mora no próprio painel porque a faixa precisa saber se o tema está ligado.
+  - **Gota** ao lado do disquete (`ICONE_GOTA_CHEIA` boiando e piscando = tema ligado; `ICONE_GOTA_VAZIA` = Claude normal). Clique alterna, grava `tema` no `$.store` (`imersao`/`normal`) e chama `$.theme.set` ou `$.theme.clear`. Com o tema ligado, as pílulas passam pela `tingir` (cinzas e cores de estado trocados pelos da marca).
+  - **Cena** = seis peças em `hooks\cena\` (fundo, lua, selo, água, peixes, Clawd), feitas cada uma por um agente com contrato comum e crítico Opus. Fonte, contrato, montador e prévia no estúdio: `C:\Users\Cezar\praxedes\oficina\estudio\tema-imersao\v2\` (`CONTRATO.md`, `montar.mjs`, `partes\`). Mexer lá, conferir com `node montar.mjs --prints` e copiar para `hooks\cena\`.
+  - **Dados** (`dadosDaCena`, em degraus para a animação só recomeçar quando muda): lua = contexto (10 em 10; laranja a partir de 70), água = semana (5 em 5) com linha da meta = o contorno branco da faixa, peixes = subagentes rodando (até 12) e peixe cinza de barriga para cima = erro não visto, Clawd = vez/trabalhando/pânico, selo = "COMPACTE" (ctx ≥ 70) ou "CACHE" (vez do Cezar e cache nos últimos 5 min).
+  - **Reprovados:** o mascote Imerso (duas versões, "horrível"), régua de profundidade, modo claro e celular na cena.
 
 ## Decisões
 - Português, mínimo de texto, visual uniforme: chip com fundo neutro, cor só no número e na barra. Horário de Rondônia (UTC−4).
@@ -73,7 +78,7 @@ Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel
 - Engine 2.1.295 trouxe `$.ui.notify` (notificação do Windows), `$.ui.selection` (texto selecionado) e `ui.fault`. O painel direito novo do app (Ambiente, Contexto, Conectores, Saídas) não aceita mod.
 
 ## Pendente / próximo passo
-- **Próximo passo:** instalar a 0.18.0 e conferir no app: clique nas linhas, conversa dentro do painel, área cobrindo a linha inteira, rolagem até o fim da conversa, animação sem reiniciar.
+- **Próximo passo:** conferir no app a 0.21.0: cena desenhada no modo escuro, dados batendo com a faixa, gota alternando, se a animação reinicia demais com subagentes entrando e saindo.
 - O painel de Agentes ficou vazio ("painel-cezar has not drawn in this pane") no chat "PWA receitas e estoque" em 15/10, com subagente rodando. No teste isolado ele desenha. A 0.14.1 mostra o erro em vermelho no próprio painel: o Cezar fecha o painel, clica no Clawd (ou arquiva/desarquiva) e manda o print do texto vermelho. Com ele, corrigir a causa.
 - **Ideias oferecidas, sem resposta do Cezar:** notificação do Windows (subagente terminou, Clawd em pânico, 5h > 90%) e a lista de tarefas (TodoWrite/TaskCreate) na faixa ou no painel.
 - **Conferido no app:** 💾; hora injetada; 📦 (0.13.1); fantasias por função no painel (0.14.0, "amei"); limites por sessão (0.13.3, a faixa bate com o painel do desktop).

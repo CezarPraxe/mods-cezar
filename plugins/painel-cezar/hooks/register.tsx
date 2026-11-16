@@ -2,8 +2,16 @@
 // Texto da licença: LICENSE-savvy-progress, na raiz do repositório mods-cezar.
 // Parte do módulo register.tsx: o plugin tem um só módulo de hooks.
 import { atom, read, update } from 'claude-code'
-import type { ElementTable, EngineInterface, PluginOptions, Register, SessionContextUsage, SessionMessage, SessionRateLimit, Timer } from 'claude-code'
+import type { ElementTable, EngineInterface, PluginOptions, Register, SessionContextUsage, SessionMessage, SessionRateLimit, ThemeSetArgs, Timer } from 'claude-code'
 import type { AgentRun, AgentStatus, Panel } from '../types'
+import { makeColors } from './make-colors.js'
+import { desenhar as cenaFundo } from './cena/fundo.js'
+import { desenhar as cenaLua } from './cena/lua.js'
+import { desenhar as cenaSelo } from './cena/selo.js'
+import { desenhar as cenaAgua } from './cena/agua.js'
+import { desenhar as cenaPeixes } from './cena/peixes.js'
+import { desenhar as cenaClawd } from './cena/clawd.js'
+import type { DadosCena } from './cena/tipos'
 
 // Estado do painel de agentes. Prefixo ag_ para não colidir com os valores da faixa, mais abaixo no arquivo.
 const agents = atom({ plugin: 'painel-cezar', key: 'ag_agents' } as const, [])
@@ -734,7 +742,7 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
         <Box flexDirection="column" gap={1}>
           <Button key="voltar" label={`‹ ${s.pane}`} plain dimColor onPress={() => update($, panel, q => ({ ...q, abertoId: undefined }))} />
           {temSvg && Svg ? (
-            <Svg source={cabeca.source} alt={cabeca.alt} width={cabeca.width} height={cabeca.height} />
+            <Svg source={tingir(cabeca.source)} alt={cabeca.alt} width={cabeca.width} height={cabeca.height} />
           ) : (
             <Box flexDirection="column">
               <Text bold wrap="truncate-end">{aberto.description || aberto.type}</Text>
@@ -768,7 +776,7 @@ const registerAgentes = (on: Parameters<Register>[0]) => {
 
     if (temSvg) {
       const { Svg } = ui as { Svg: Els['Svg'] }
-      const pinta = (d: Desenho) => <Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />
+      const pinta = (d: Desenho) => <Svg source={tingir(d.source)} alt={d.alt} width={d.width} height={d.height} />
       // Linha clicável: a área invisível cobre o desenho, e sem Client (editor, celular) entra um botão de texto
       const elements = ui as unknown as Els
       const temArea = e.surface === 'desktop' && 'Client' in ui
@@ -1013,6 +1021,94 @@ const PILULA_CSS = `<style>
 .a-vz{stroke:#fff}.a-tx{stroke:#ECEAE3}.a-mu{stroke:#8F8C83}.a-success{stroke:#8CC29A}.a-warning{stroke:#E3B566}.a-error{stroke:#E8776C}
 .p-success{stop-color:#8CC29A}.p-warning{stop-color:#E3B566}.p-error{stop-color:#E8776C}.p-none{stop-color:#8F8C83}}
 </style>`
+// ---- Tema IMERSÃO: cores do app, cena atrás da conversa e o botão da gota que liga e desliga ----
+const TEMA_CHAVE = 'tema'
+const TEMA_CENA = 'imersao'
+// Ligado até a pessoa desligar; a escolha fica na loja e vale nas próximas sessões
+let temaLigado = true
+const { theme: TEMA_CORES } = makeColors({
+  label: 'IMERSÃO',
+  roles: { accent: '#0685F3', danger: '#C8402A', success: '#3E8A4F', warning: '#F2B830', pro: '#E8742A' },
+  light: { gray: { anchors: { 'surface-0': '#F3EAD3', 'surface-1': '#F8F0DD', 'surface-2': '#FFF8E9', 'text-primary': '#0B1C3D', 'text-secondary': '#2A3B5C', 'text-muted': '#4A5873' } } },
+  dark: { gray: { anchors: { 'surface-0': '#06122B', 'surface-1': '#0A1834', 'surface-2': '#0E1E3D', 'surface-3': '#122545', 'text-primary': '#F3EAD3', 'text-secondary': '#D3CDBB', 'text-muted': '#A9AEB5' } } },
+})
+const TEMA: ThemeSetArgs = { colors: TEMA_CORES, backdrop: { scene: TEMA_CENA, glass: false } }
+// Os cinzas e as cores de estado das pílulas, trocados pelos da marca quando o tema está ligado
+const TINTA_IMERSAO: Record<string, string> = {
+  E9E7E1: 'E6D9B8', '2B2A27': '0B1C3D', '6F6C65': '4A5873', '2F8F5B': '2F7D45', B07C1E: 'B5790A', CF4A40: 'C23B26',
+  '2D2C2A': '13284D', ECEAE3: 'F3EAD3', '8F8C83': '9FA8B8', '8CC29A': '7CC48E', E3B566: 'F2B830', E8776C: 'F07A5E',
+}
+const TINTA_RE = new RegExp('#(' + Object.keys(TINTA_IMERSAO).join('|') + ')', 'gi')
+const tingir = (svg: string) => (temaLigado ? svg.replace(TINTA_RE, (_, h: string) => '#' + TINTA_IMERSAO[h.toUpperCase()]) : svg)
+
+async function aplicarTema($: EngineInterface) {
+  if (!temaLigado) return
+  // Tema que falha não pode levar a faixa junto
+  try {
+    await $.theme.set(TEMA)
+  } catch {}
+}
+async function lerTema($: EngineInterface) {
+  temaLigado = ((await $.store.get(TEMA_CHAVE)) as string | undefined) !== 'normal'
+}
+async function alternarTema($: EngineInterface) {
+  temaLigado = !temaLigado
+  await $.store.set(TEMA_CHAVE, temaLigado ? 'imersao' : 'normal')
+  if (temaLigado) await aplicarTema($)
+  else await $.theme.clear().catch(() => {})
+  $.ui.toast(temaLigado ? 'Tema IMERSÃO ligado' : 'Claude normal')
+  $.ui.invalidate('ui.render')
+}
+
+const GOTA = 'M12 4.6C12 4.6 7.2 10.2 7.2 13.6a4.8 4.8 0 0 0 9.6 0C16.8 10.2 12 4.6 12 4.6Z'
+const GOTA_FUNDO = '.fd{fill:#E9E7E1}.mu{stroke:#6F6C65}.tx{stroke:#2B2A27}@media (prefers-color-scheme: dark){.fd{fill:#2D2C2A}.mu{stroke:#8F8C83}.tx{stroke:#ECEAE3}}'
+// Ligado: a gota cheia boia devagar e a estrelinha pisca. Desligado: só o contorno, parado.
+const ICONE_GOTA_CHEIA = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" role="img" aria-label="Tema IMERSÃO ligado"><title>Tema IMERSÃO ligado</title><style>${GOTA_FUNDO}.bo{animation:bo 3.6s ease-in-out infinite}@keyframes bo{0%,100%{transform:translateY(.4px)}50%{transform:translateY(-.7px)}}.ha{animation:ha 3.6s ease-in-out infinite}@keyframes ha{0%,100%{opacity:.35}50%{opacity:.65}}.es{transform-origin:18.6px 5.8px;animation:es 2.4s ease-in-out infinite}@keyframes es{0%,100%{opacity:.25;transform:scale(.6)}45%{opacity:1;transform:scale(1)}}@media (prefers-reduced-motion:reduce){.bo,.ha,.es{animation:none}}</style><defs><filter id="gb" filterUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><feGaussianBlur stdDeviation="1.6"/></filter></defs><rect class="fd" width="24" height="24" rx="12"/><g class="bo"><g filter="url(#gb)" class="ha"><path d="${GOTA}" fill="#56B1E1"/></g><path d="${GOTA}" fill="#56B1E1" class="tx" stroke-width="1.3"/><path d="M9.6 13.4a2.6 2.6 0 0 0 1.7 2.5" fill="none" stroke="#FFF8E9" stroke-width="1.2" stroke-linecap="round"/></g><path class="es" d="M18.6 4.2q0 1.6 1.6 1.6q-1.6 0-1.6 1.6q0-1.6-1.6-1.6q1.6 0 1.6-1.6Z" fill="#F2B830"/></svg>`
+const ICONE_GOTA_VAZIA = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" role="img" aria-label="Claude normal"><title>Claude normal</title><style>${GOTA_FUNDO}</style><rect class="fd" width="24" height="24" rx="12"/><path d="${GOTA}" fill="none" class="mu" stroke-width="1.4"/></svg>`
+
+// Cena v2 (estúdio: oficina\estudio\tema-imersao\v2): lua = contexto, água = semana e meta, peixes = subagentes,
+// Clawd = estado do Claude, selo = aviso. Os dados vão em degraus: a cena só muda (e as animações só recomeçam)
+// quando um degrau muda.
+const degrau = (v: number, passo: number) => Math.max(0, Math.min(100, Math.round(v / passo) * passo))
+
+async function dadosDaCena($: EngineInterface): Promise<DadosCena> {
+  const agora = await $.clock.now()
+  const ctx = degrau(context?.percent ?? 0, 10)
+  const limite = rateLimits.find((l) => l.kind === 'seven_day')
+  const sem = limite ? readLimit(limite, agora) : null
+  const semana = degrau(sem?.used ?? 0, 5)
+  const ideal = degrau(sem?.elapsed ?? 0, 5)
+  const lista = await read($, agents)
+  const agentes = Math.min(12, lista.filter((a) => a.status === 'running').length)
+  const erros = Math.min(4, lista.filter((a) => a.status === 'failed' && !a.erroVisto).length)
+  const estado: DadosCena['estado'] = clawdEstado === 'panico' ? 'precisa' : clawdEstado === 'trabalhando' || agentes > 0 ? 'trabalhando' : 'vez'
+  // Cache só importa enquanto a vez é do Cezar: avisa nos últimos 5 minutos antes de esfriar
+  const resta = ultimaResposta ? ultimaResposta + cacheMs() - agora : 0
+  const aviso: DadosCena['aviso'] = ctx >= 70 ? 'compactar' : estado === 'vez' && resta > 0 && resta <= 5 * 60_000 ? 'cache' : null
+  return { ctx, semana, ideal, sup: 740 - semana * 2, estado, agentes, erros, aviso }
+}
+
+let cenaGuardada = { chave: '', svg: '' }
+function montarCena(d: DadosCena): string {
+  const chave = JSON.stringify(d)
+  if (chave === cenaGuardada.chave) return cenaGuardada.svg
+  const pecas = { fundo: cenaFundo, lua: cenaLua, selo: cenaSelo, agua: cenaAgua, peixes: cenaPeixes, clawd: cenaClawd }
+  const saida: Record<string, ReturnType<typeof cenaFundo>> = {}
+  for (const [nome, desenhar] of Object.entries(pecas)) {
+    // Peça que falha fica de fora; o resto da cena continua
+    try {
+      saida[nome] = desenhar(d)
+    } catch {}
+  }
+  const camada = (nome: string, parte: 'svg' | 'tras' | 'frente' = 'svg') => saida[nome]?.[parte] ?? ''
+  const css = Object.values(saida).map((r) => r.css ?? '').join('')
+  const defs = Object.values(saida).map((r) => r.defs ?? '').join('')
+  const corpo = camada('fundo') + camada('lua') + camada('selo') + camada('agua', 'tras') + camada('peixes') + camada('clawd') + camada('agua', 'frente')
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice"><style>${css}</style><defs>${defs}</defs><rect width="1600" height="1000" fill="#06122B"/>${corpo}</svg>`
+  cenaGuardada = { chave, svg }
+  return svg
+}
+
 // The terminal draws the time marker in this color
 const MARKER_COLOR = 'cyan'
 
@@ -1022,6 +1118,9 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
   let relogio: Timer | undefined
 
   on('session.start', async ($, e, next) => {
+    // Nem recarga do mod nem --resume guardam o tema: põe de novo aqui
+    await lerTema($)
+    await aplicarTema($)
     await inicio($)
     await agentesInicio($, options)
     relogio?.cancel()
@@ -1140,6 +1239,17 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
     return next(e)
   })
 
+  // A cena roda para o tema de qualquer mod: só desenha a nossa
+  on('ui.render', { component: 'Backdrop' }, async ($, e, next) => {
+    if (e.surface !== 'desktop' && e.surface !== 'mobile') return next(e)
+    const p = e.props as { plugin?: string; scene?: string }
+    if (p.plugin !== $.plugin.name || p.scene !== TEMA_CENA) return next(e)
+    const { Svg } = $.ui.resolve(e)
+    const d = await dadosDaCena($)
+    const alt = `Noite do IMERSÃO: contexto ${d.ctx}%, semana ${d.semana}% (meta ${d.ideal}%), ${d.agentes} agentes rodando`
+    return Svg({ source: montarCena(d), alt, isInteractive: false })
+  })
+
   // Clique numa área invisível: Clawd da faixa, botões e linhas do painel de agentes
   on('ui.message', async ($, e, next) => {
     if (e.element === 'clawd') {
@@ -1152,6 +1262,10 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
     }
     if (e.element === 'salvar') {
       pedirSalvar($)
+      return {}
+    }
+    if (e.element === 'tema') {
+      await alternarTema($)
       return {}
     }
     if (e.element === 'fundo') {
@@ -1233,6 +1347,7 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
               iconeClicavel(elements, 'clawd', clawdAgora.source, clawdAgora.alt, CLAWD_LARGURA, CLAWD_ALTURA),
               iconeClicavel(elements, 'compactar', ICONE_COMPACTAR, 'compactar', 24, 24),
               iconeClicavel(elements, 'salvar', ICONE_SALVAR, 'salvar o estado e compactar', 24, 24),
+              iconeClicavel(elements, 'tema', temaLigado ? ICONE_GOTA_CHEIA : ICONE_GOTA_VAZIA, temaLigado ? 'tema IMERSÃO ligado: clique para o Claude normal' : 'Claude normal: clique para o tema IMERSÃO', 24, 24),
             ]
           : [
               elements.Button({ key: 'agentes', label: 'sub', onPress: () => void $.ui.open({ id: 'agentes-cezar', title: 'Agentes' }) }),
@@ -1466,7 +1581,7 @@ function iconeClicavel(elements: Els, key: string, source: string, alt: string, 
     position: 'relative',
     flexShrink: 0,
     children: [
-      elements.Svg({ source, alt, width, height }),
+      elements.Svg({ source: tingir(source), alt, width, height }),
       elements.Box({ key: key + '-clique', position: 'absolute', top: 0, left: 0, children: [elements.Client({ key, module: './clawd.jsx', width: 3, height: 1 })] }),
     ],
   })
@@ -1707,7 +1822,7 @@ function mostrarFundo($: EngineInterface) {
 
 // Toda pílula vai numa caixa com key: é a caixa que entra na linha que quebra
 function desenharPilula({ Box, Svg }: Els, key: string, p: Pilula) {
-  return Box({ key, flexShrink: 0, children: [Svg({ source: p.source, alt: p.alt, width: p.width, height: p.height })] })
+  return Box({ key, flexShrink: 0, children: [Svg({ source: tingir(p.source), alt: p.alt, width: p.width, height: p.height })] })
 }
 
 function clamp(percent: number): number {

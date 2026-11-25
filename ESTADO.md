@@ -1,6 +1,6 @@
 # ESTADO — mods do Claude Code (painel-cezar)
 
-Atualizado: 16/11/2026 · instalada a **0.22.0** (tema IMERSÃO removido; código da 0.20.1) · público em github.com/CezarPraxe/mods-cezar
+Atualizado: 16/11/2026 · instalada a **0.22.1** (avisos do canto com 20 s de duração; tema IMERSÃO removido na 0.22.0) · público em github.com/CezarPraxe/mods-cezar
 
 ## O que é
 Plugin `painel-cezar`: `plugins\painel-cezar\hooks\register.tsx` (faixa + painel de agentes, um módulo só) + `hooks\clawd.jsx` + `types\index.d.ts`. 100% independente: quem instala do GitHub tem tudo.

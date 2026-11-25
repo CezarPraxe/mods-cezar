@@ -5,6 +5,9 @@ import { atom, read, update } from 'claude-code'
 import type { ElementTable, EngineInterface, PluginOptions, Register, SessionContextUsage, SessionMessage, SessionRateLimit, Timer } from 'claude-code'
 import type { AgentRun, AgentStatus, Panel } from '../types'
 
+// Aviso no canto some sozinho em 20 s (o padrão do app é 4 s, mas lá eles estavam ficando)
+const AVISO = { timeoutMs: 20_000 }
+
 // Estado do painel de agentes. Prefixo ag_ para não colidir com os valores da faixa, mais abaixo no arquivo.
 const agents = atom({ plugin: 'painel-cezar', key: 'ag_agents' } as const, [])
 const panel = atom({ plugin: 'painel-cezar', key: 'ag_panel' } as const, {} as Panel)
@@ -1076,7 +1079,7 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
       await update($, contexto, () => pct)
       if (pct >= LIMITE && !(await read($, avisou70))) {
         await update($, avisou70, () => true)
-        $.ui.toast(`Ctx ${pct}% · hora de compactar`)
+        $.ui.toast(`Ctx ${pct}% · hora de compactar`, AVISO)
       }
       if (pct < LIMITE) await update($, avisou70, () => false)
     } catch {}
@@ -1185,7 +1188,7 @@ export function register(on: Parameters<Register>[0], options: PluginOptions) {
     if (u && (u.cache_read_input_tokens || u.cache_creation_input_tokens)) {
       const atual = { comecou, modelo: u.model || e.model, lido: u.cache_read_input_tokens ?? 0, gravado: u.cache_creation_input_tokens ?? 0, novo: u.input_tokens ?? 0 }
       const motivo = porQueEsfriou(chamadaAnterior, atual)
-      if (motivo) $.ui.toast(`⏱ Cache frio (${motivo}): regravou ${milhares(atual.gravado)} tokens`)
+      if (motivo) $.ui.toast(`⏱ Cache frio (${motivo}): regravou ${milhares(atual.gravado)} tokens`, AVISO)
       chamadaAnterior = atual
       ultimaResposta = comecou
       await $.store.set('cache:' + (await $.session.id()), comecou)
@@ -1473,17 +1476,17 @@ function iconeClicavel(elements: Els, key: string, source: string, alt: string, 
 }
 
 function pedirCompactar($: EngineInterface) {
-  $.ui.toast('Compactando…')
+  $.ui.toast('Compactando…', AVISO)
   compactar($)
 }
 
 function pedirSalvar($: EngineInterface) {
   if (compactarDepois) {
-    $.ui.toast('Já está salvando…')
+    $.ui.toast('Já está salvando…', AVISO)
     return
   }
   compactarDepois = true
-  $.ui.toast('Salvando o ESTADO.md… depois compacta sozinho.')
+  $.ui.toast('Salvando o ESTADO.md… depois compacta sozinho.', AVISO)
   void $.prompt.submit({ text: PROMPT_ESTADO, asUser: true }).catch(() => {})
 }
 
@@ -1702,7 +1705,7 @@ function pilulaFundo(n: number): Pilula {
 }
 
 function mostrarFundo($: EngineInterface) {
-  $.ui.toast('Em segundo plano: ' + fundo.map((f) => f.tipo + ' · ' + f.desc).join(' | '))
+  $.ui.toast('Em segundo plano: ' + fundo.map((f) => f.tipo + ' · ' + f.desc).join(' | '), AVISO)
 }
 
 // Toda pílula vai numa caixa com key: é a caixa que entra na linha que quebra
@@ -1980,7 +1983,7 @@ function compactar($: EngineInterface) {
       } catch {
         if (tentativas >= 10) {
           parar()
-          $.ui.toast('Não consegui compactar. Digite /compact.')
+          $.ui.toast('Não consegui compactar. Digite /compact.', AVISO)
         }
       }
     }
